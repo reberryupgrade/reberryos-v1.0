@@ -1,6 +1,6 @@
 export const metadata = {
   title: "REBERRYOS",
-  description: "마케팅 관리 시스템",
+  description: "Marketing Management System",
 };
 
 export default function RootLayout({ children }) {

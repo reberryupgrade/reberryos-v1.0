@@ -2,6 +2,12 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Cell, AreaChart, Area, Legend } from "recharts";
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 const TAB_TYPES = ["블로그","지식인","카페","플레이스","뉴스","파워링크"];
 const COMM_PLATFORMS = ["당근마켓","에브리타임","맘카페","지역카페"];
@@ -104,10 +110,30 @@ const DEFAULT_SYSTEM = {
 // Storage
 const SYS_KEY="reberryos-v1-sys";
 const bKey=id=>`reberryos-v1-b-${id}`;
-async function loadSys(){try{if(typeof window==='undefined')return null;const r=localStorage.getItem(SYS_KEY);return r?JSON.parse(r):null;}catch{return null;}}
-async function saveSys(d){try{if(typeof window==='undefined')return;localStorage.setItem(SYS_KEY,JSON.stringify(d));}catch{}}
-async function loadBranch(id){try{if(typeof window==='undefined')return null;const r=localStorage.getItem(bKey(id));return r?JSON.parse(r):null;}catch{return null;}}
-async function saveBranch(id,d){try{if(typeof window==='undefined')return;localStorage.setItem(bKey(id),JSON.stringify(d));}catch{}}
+async function loadSys(){
+  try{
+    const {data,error}=await supabase.from('app_storage').select('value').eq('key',SYS_KEY).single();
+    if(error||!data)return null;
+    return data.value;
+  }catch{return null;}
+}
+async function saveSys(d){
+  try{
+    await supabase.from('app_storage').upsert({key:SYS_KEY,value:d,updated_at:new Date().toISOString()});
+  }catch{}
+}
+async function loadBranch(id){
+  try{
+    const {data,error}=await supabase.from('app_storage').select('value').eq('key',bKey(id)).single();
+    if(error||!data)return null;
+    return data.value;
+  }catch{return null;}
+}
+async function saveBranch(id,d){
+  try{
+    await supabase.from('app_storage').upsert({key:bKey(id),value:d,updated_at:new Date().toISOString()});
+  }catch{}
+}
 
 const fmt=n=>(n||0).toLocaleString();
 const fmtW=n=>"₩"+(n||0).toLocaleString();
