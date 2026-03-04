@@ -123,12 +123,24 @@ export async function POST(req) {
 
     // ============ 4. 네이버 지도 ============
     try {
-      const res = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all`, { headers: {...headers,"Accept":"application/json"} });
-      const data = await res.json();
-      const places = (data?.result?.place?.list || []).map(p => ({name:p.name,id:p.id,category:p.category||"",address:p.roadAddress||p.address||"",reviewCount:+(p.reviewCount||p.visitorReviewCount||0),rating:p.rating||""}));
-      results.naverMap = { places: places.slice(0,10), titles: places.slice(0,10).map(p=>p.name) };
-      if (targets?.placeName) { const i = places.findIndex(p => tl(p.name).includes(tl(targets.placeName))); results.naverMap.rank = i>=0 ? i+1 : null; if (i>=0) results.naverMap.myPlace = places[i]; }
-    } catch (e) { results.naverMap = { error: e.message, titles: [] }; }
+      const mapRes = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all`, { headers: {...headers,"Accept":"application/json"} });
+      const mapText = await mapRes.text();
+      // 해외 IP면 HTML이 올 수 있음 → JSON 파싱 시도
+      if (mapText.startsWith("{") || mapText.startsWith("[")) {
+        const data = JSON.parse(mapText);
+        const places = (data?.result?.place?.list || []).map(p => ({name:p.name,id:p.id,category:p.category||"",address:p.roadAddress||p.address||"",reviewCount:+(p.reviewCount||p.visitorReviewCount||0),rating:p.rating||""}));
+        results.naverMap = { places: places.slice(0,10), titles: places.slice(0,10).map(p=>p.name) };
+        if (targets?.placeName) { const i = places.findIndex(p => tl(p.name).includes(tl(targets.placeName))); results.naverMap.rank = i>=0 ? i+1 : null; if (i>=0) results.naverMap.myPlace = places[i]; }
+      } else {
+        // HTML 응답 → 통합검색 플레이스 결과로 대체
+        results.naverMap = { titles: results.place?.titles || [], note: "해외IP-통합검색대체" };
+        if (targets?.placeName && results.place?.rank) results.naverMap.rank = results.place.rank;
+      }
+    } catch (e) {
+      // 에러시에도 통합검색 결과로 대체
+      results.naverMap = { titles: results.place?.titles || [], note: "API오류-통합검색대체", error: e.message };
+      if (targets?.placeName && results.place?.rank) results.naverMap.rank = results.place.rank;
+    }
 
     // ============ 5. 구글 지도 ============
     try {
@@ -192,8 +204,19 @@ export async function POST(req) {
         // 네이버 플레이스 리뷰
         try {
           const sRes = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${keyword} ${targets.placeName}&type=all`, { headers: {...headers,"Accept":"application/json"} });
-          const sData = await sRes.json();
-          const place = (sData?.result?.place?.list || [])[0];
+          const sText = await sRes.text();
+          let place = null;
+          if (sText.startsWith("{")) {
+            const sData = JSON.parse(sText);
+            place = (sData?.result?.place?.list || [])[0];
+          }
+          // fallback: 네이버 검색에서 place ID 추출
+          if (!place?.id) {
+            const searchRes = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(keyword+" "+targets.placeName)}`, { headers });
+            const searchHtml = await searchRes.text();
+            const idMatch = searchHtml.match(/place\/(\d{5,})/);
+            if (idMatch) place = { id: idMatch[1], name: targets.placeName };
+          }
           if (place?.id) {
             // 방문자 리뷰 페이지
             const rvRes = await fetch(`https://m.place.naver.com/restaurant/${place.id}/review/visitor`, { headers });
@@ -285,20 +308,23 @@ export async function POST(req) {
         const method = "GET";
         const path = "/keywordstool";
 
-        // HMAC-SHA256 서명 생성
         const crypto = await import("crypto");
         const hmac = crypto.createHmac("sha256", adSecret);
         hmac.update(timestamp + "." + method + "." + path);
         const signature = hmac.digest("base64");
 
-        const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encoded}&showDetail=1`;
-        const svRes = await fetch(apiUrl, {
+        // URL 객체로 파라미터 안전하게 구성
+        const apiUrl = new URL("https://api.searchad.naver.com/keywordstool");
+        apiUrl.searchParams.set("hintKeywords", keyword);
+        apiUrl.searchParams.set("showDetail", "1");
+
+        const svRes = await fetch(apiUrl.toString(), {
+          method: "GET",
           headers: {
             "X-Timestamp": timestamp,
             "X-API-KEY": adApiKey,
             "X-Customer": adCustomerId,
             "X-Signature": signature,
-            "Content-Type": "application/json",
           }
         });
 

@@ -42,8 +42,12 @@ export async function GET() {
       const hmac = crypto.createHmac("sha256", adSecret);
       hmac.update(timestamp + ".GET./keywordstool");
       const signature = hmac.digest("base64");
-      const res = await fetch(`https://api.searchad.naver.com/keywordstool?hintKeywords=${encoded}&showDetail=1`, {
-        headers: { "X-Timestamp": timestamp, "X-API-KEY": adApiKey, "X-Customer": adCustomerId, "X-Signature": signature, "Content-Type": "application/json" }
+      const apiUrl = new URL("https://api.searchad.naver.com/keywordstool");
+      apiUrl.searchParams.set("hintKeywords", testKeyword);
+      apiUrl.searchParams.set("showDetail", "1");
+      const res = await fetch(apiUrl.toString(), {
+        method: "GET",
+        headers: { "X-Timestamp": timestamp, "X-API-KEY": adApiKey, "X-Customer": adCustomerId, "X-Signature": signature }
       });
       const text = await res.text();
       if (res.status === 200) {
@@ -71,8 +75,13 @@ export async function GET() {
     const res = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all`, {
       headers: { "User-Agent": ua, "Accept": "application/json" }
     });
-    const data = await res.json();
-    results.naverMap = { status: res.status, placeCount: data?.result?.place?.list?.length || 0, first3: (data?.result?.place?.list || []).slice(0, 3).map(p => p.name) };
+    const text = await res.text();
+    if (text.startsWith("{") || text.startsWith("[")) {
+      const data = JSON.parse(text);
+      results.naverMap = { status: res.status, placeCount: data?.result?.place?.list?.length || 0, first3: (data?.result?.place?.list || []).slice(0, 3).map(p => p.name) };
+    } else {
+      results.naverMap = { status: res.status, note: "해외IP - HTML 응답 (통합검색 플레이스로 대체됨)", bodyPreview: text.slice(0, 100) };
+    }
   } catch (e) { results.naverMap = { error: e.message }; }
 
   return Response.json({ test: "REBERRYOS API 진단", timestamp: new Date().toISOString(), keyword: testKeyword, results });
