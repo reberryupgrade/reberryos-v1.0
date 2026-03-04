@@ -391,15 +391,7 @@ function LoginScreen({onLogin,system}){
           style={{background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"7px 11px",color:"#f1f5f9",fontSize:13,width:"100%",boxSizing:"border-box"}}/></FF>
         {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:12}}>{err}</div>}
         <Btn onClick={handleLogin} color="#6366f1" style={{width:"100%",padding:"10px",fontSize:14,marginTop:4}}>로그인</Btn>
-        <div style={{marginTop:20,background:"#0f172a",borderRadius:10,padding:"12px 14px"}}>
-          <div style={{color:"#64748b",fontSize:11,marginBottom:6}}>테스트 계정</div>
-          {system.users.map(x=>(
-            <div key={x.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#94a3b8",marginBottom:3}}>
-              <span>{x.name} <span style={{color:"#475569"}}>({x.role==="admin"?"통합관리자":x.role==="manager"?"지점관리자":"클라이언트"})</span></span>
-              <span style={{color:"#6366f1"}}>{x.username} / {x.password}</span>
-            </div>
-          ))}
-        </div>
+
       </div>
     </div>
   );
