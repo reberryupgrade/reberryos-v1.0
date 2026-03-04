@@ -828,7 +828,6 @@ const RANK_FIELDS=[
   {key:"rankKnowledge",label:"지식인",icon:"❓",color:"#f59e0b"},
   {key:"rankNews",label:"뉴스",icon:"📰",color:"#94a3b8"},
   {key:"rankPowerlink",label:"파워링크",icon:"💎",color:"#10b981"},
-  {key:"rankNaverMap",label:"네이버맵",icon:"🗺️",color:"#22d3ee"},
   {key:"rankGoogle",label:"구글맵",icon:"🌐",color:"#f97316"},
   {key:"rankKakao",label:"카카오맵",icon:"🟡",color:"#fbbf24"},
 ];
@@ -1017,13 +1016,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     if(r.knowledge?.rank)updates.rankKnowledge=r.knowledge.rank+"위";
     if(r.news?.rank)updates.rankNews=r.news.rank+"위";
     if(r.powerlink?.rank)updates.rankPowerlink=r.powerlink.rank+"위";
-    if(r.naverMap?.rank)updates.rankNaverMap=r.naverMap.rank+"위";
-    else if(r.naverMap?.titles?.length)updates.rankNaverMap="미노출";
     if(r.googleMap?.rank)updates.rankGoogle=r.googleMap.rank+"위";
     else if(r.googleMap?.titles?.length)updates.rankGoogle="미노출";
     if(r.kakaoMap?.rank)updates.rankKakao=r.kakaoMap.rank+"위";
     else if(r.kakaoMap?.titles?.length)updates.rankKakao="미노출";
     if(r.tabOrder)updates.detectedTabOrder=r.tabOrder;
+    if(r.monthlySearch)updates.monthlySearch=r.monthlySearch;
     updates._rankDetail={
       blog:r.blog?.titles||[],place:r.place?.titles||[],cafe:r.cafe?.titles||[],
       knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
@@ -1799,7 +1797,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Th c="❓ 지식인" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="📰 뉴스" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="💎 파워링크" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
-                    <Th c="🗺️ N맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
+                    
                     <Th c="🌐 G맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="🟡 K맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="검색탭순서"/><Th c="설정순서"/><Th c="최근조회"/><Th c=""/>
@@ -1814,10 +1812,10 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankKnowledge} color="#f59e0b"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankNews} color="#94a3b8"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankPowerlink} color="#10b981"/></Td>
-                      <Td style={{textAlign:"center"}}><RankBadge value={k.rankNaverMap} color="#22d3ee"/></Td>
+                      
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankGoogle} color="#f97316"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankKakao} color="#fbbf24"/></Td>
-                      <Td>{k.detectedTabOrder?<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{k.detectedTabOrder.slice(0,4).map((tp,idx)=><span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":"#1e293b",color:idx<2?"#fff":"#94a3b8",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx<2?700:400}}>{idx+1}.{tp}</span>)}{k.detectedTabOrder.length>4&&<span style={{color:"#334155",fontSize:10}}>…</span>}</div>:<span style={{color:"#334155",fontSize:11}}>미조회</span>}</Td>
+                      <Td>{k.detectedTabOrder?<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{k.detectedTabOrder.slice(0,5).map((tp,idx)=><span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":idx===2?"#6366f1":"#1e293b",color:idx<3?"#fff":"#94a3b8",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx<2?700:400}}>{idx+1}.{tp}</span>)}{k.detectedTabOrder.length>5&&<span style={{color:"#334155",fontSize:10}}>…</span>}</div>:<span style={{color:"#334155",fontSize:11}}>미조회</span>}</Td>
                       <Td><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{(k.tabOrder||TAB_TYPES).slice(0,3).map((tp,idx)=><span key={idx} style={{background:idx===0?"#6366f1":"#1e293b",color:idx===0?"#fff":"#64748b",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx===0?700:400}}>{idx+1}.{tp}</span>)}<span style={{color:"#334155",fontSize:10}}>…</span></div></Td>
                       <Td><span style={{color:"#475569",fontSize:11}}>{k.lastRankCheck||"-"}</span></Td>
                       <Td><div style={{display:"flex",gap:4}}><button onClick={()=>checkNaverRank(k)} disabled={rankLoading===k.id} style={{background:rankLoading===k.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading===k.id?"⏳":"🔍"}</button><button onClick={()=>setModal({type:"editKw",item:k})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><button onClick={()=>k._rankDetail?setModal({type:"rankDetail",item:k}):null} disabled={!k._rankDetail} style={{background:k._rankDetail?"#334155":"#1e293b",border:"none",color:k._rankDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:k._rankDetail?"pointer":"default",fontSize:11}}>상세</button><DelBtn onClick={()=>del("keywords",k.id)}/></div></Td>
@@ -1952,6 +1950,15 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
           {/* MAPS */}
           {tab==="maps"&&(
             <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6}}><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
+              <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",marginBottom:14,border:"1px solid #334155"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"#10b981"}}>🎯 내 콘텐츠 식별자</div>
+                  <span style={{color:"#475569",fontSize:11}}>지도 순위 조회 시 이 업체명으로 찾습니다</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                  <div><div style={{color:"#94a3b8",fontSize:11,marginBottom:4}}>플레이스/업체명</div><input value={data.rankTargets?.placeName||""} onChange={e=>upd("rankTargets",{...data.rankTargets,placeName:e.target.value})} placeholder="예: 강남피부과의원" style={{width:"100%",background:"#1e293b",border:"1px solid #334155",borderRadius:8,padding:"8px 12px",color:"#e2e8f0",fontSize:13}}/></div>
+                </div>
+              </div>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr><Th c="키워드"/><Th c="🗺️ N맵"/><Th c="🌐 G맵"/><Th c="🟡 K맵"/><Th c="상태"/><Th c="조회일"/><Th c=""/></tr></thead>
                 <tbody>{data.maps.map((m,ri)=>(

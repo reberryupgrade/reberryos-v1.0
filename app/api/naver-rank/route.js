@@ -203,7 +203,51 @@ export async function POST(req) {
       } catch (e) { results.reviews = { error: e.message }; }
     }
 
-    return Response.json({ keyword, timestamp: new Date().toISOString(), results });
+    // 8. 월 검색량 (네이버 검색광고 키워드 도구 비공식)
+    try {
+      const svUrl = `https://search.naver.com/search.naver?where=nexearch&query=${encoded}`;
+      // Try to extract from ad info or keyword tool
+      const hintUrl = `https://manage.searchad.naver.com/keywordstool?format=json&siteId=&biztpId=0&hintKeywords=${encoded}&event=&month=&includeRecent=true`;
+      try {
+        const svRes = await fetch(hintUrl, { headers: { ...headers, "Accept": "application/json", "Referer": "https://manage.searchad.naver.com/" } });
+        const svText = await svRes.text();
+        try {
+          const svData = JSON.parse(svText);
+          if (svData?.keywordList?.length) {
+            const matched = svData.keywordList.find(k => k.relKeyword === keyword) || svData.keywordList[0];
+            if (matched) {
+              results.monthlySearch = +(matched.monthlyPcQcCnt || 0) + +(matched.monthlyMobileQcCnt || 0);
+            }
+          }
+        } catch {}
+      } catch {}
+      // Fallback: try Naver DataLab trend
+      if (!results.monthlySearch) {
+        try {
+          const dlRes = await fetch("https://datalab.naver.com/qcHash.naver", {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://datalab.naver.com/keyword/trendSearch.naver" },
+            body: `queryGroups=${encodeURIComponent(JSON.stringify([{groupName:keyword,queries:[keyword]}]))}&startDate=2024-01-01&endDate=2025-01-01&timeUnit=month&deviceType=&genderType=&ageType=`
+          });
+          const dlText = await dlRes.text();
+          try {
+            const dlData = JSON.parse(dlText);
+            if (dlData?.result?.length) {
+              // DataLab gives relative values, not absolute. Mark as trend-based estimate
+              const vals = dlData.result[0]?.data?.map(d => d.ratio) || [];
+              if (vals.length) {
+                const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+                // Rough estimate: ratio 100 ≈ peak popularity, scale by keyword type
+                results.monthlySearch = Math.round(avg * 100);
+                results.monthlySearchNote = "추정치";
+              }
+            }
+          } catch {}
+        } catch {}
+      }
+    } catch {}
+
+        return Response.json({ keyword, timestamp: new Date().toISOString(), results });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
