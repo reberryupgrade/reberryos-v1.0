@@ -313,12 +313,10 @@ export async function POST(req) {
         hmac.update(timestamp + "." + method + "." + path);
         const signature = hmac.digest("base64");
 
-        // URL 객체로 파라미터 안전하게 구성
-        const apiUrl = new URL("https://api.searchad.naver.com/keywordstool");
-        apiUrl.searchParams.set("hintKeywords", keyword);
-        apiUrl.searchParams.set("showDetail", "1");
+        // encodeURIComponent로 직접 인코딩 (공백=%20)
+        const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encodeURIComponent(keyword)}&showDetail=1`;
 
-        const svRes = await fetch(apiUrl.toString(), {
+        const svRes = await fetch(apiUrl, {
           method: "GET",
           headers: {
             "X-Timestamp": timestamp,

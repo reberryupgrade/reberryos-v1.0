@@ -1,7 +1,6 @@
 export async function GET() {
   const results = {};
 
-  // 1. 환경변수 확인
   results.env = {
     KAKAO_REST_API_KEY: process.env.KAKAO_REST_API_KEY ? "설정됨 (" + process.env.KAKAO_REST_API_KEY.slice(0, 6) + "...)" : "❌ 미설정",
     NAVER_AD_API_KEY: process.env.NAVER_AD_API_KEY ? "설정됨 (" + process.env.NAVER_AD_API_KEY.slice(0, 6) + "...)" : "❌ 미설정",
@@ -42,23 +41,32 @@ export async function GET() {
       const hmac = crypto.createHmac("sha256", adSecret);
       hmac.update(timestamp + ".GET./keywordstool");
       const signature = hmac.digest("base64");
-      const apiUrl = new URL("https://api.searchad.naver.com/keywordstool");
-      apiUrl.searchParams.set("hintKeywords", testKeyword);
-      apiUrl.searchParams.set("showDetail", "1");
-      const res = await fetch(apiUrl.toString(), {
+
+      // encodeURIComponent 사용 (공백을 %20으로)
+      const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encodeURIComponent(testKeyword)}&showDetail=1`;
+
+      results.naverAd_debug = { url: apiUrl, timestamp, customerId: adCustomerId };
+
+      const res = await fetch(apiUrl, {
         method: "GET",
-        headers: { "X-Timestamp": timestamp, "X-API-KEY": adApiKey, "X-Customer": adCustomerId, "X-Signature": signature }
+        headers: {
+          "X-Timestamp": timestamp,
+          "X-API-KEY": adApiKey,
+          "X-Customer": adCustomerId,
+          "X-Signature": signature,
+        }
       });
       const text = await res.text();
+      results.naverAd = { status: res.status, response: text.slice(0, 500) };
       if (res.status === 200) {
-        const data = JSON.parse(text);
-        const first = data?.keywordList?.[0];
-        results.naverAd = { status: 200, keyword: first?.relKeyword, pc: first?.monthlyPcQcCnt, mobile: first?.monthlyMobileQcCnt, total: data?.keywordList?.length + "개 키워드" };
-      } else {
-        results.naverAd = { status: res.status, response: text.slice(0, 300) };
+        try {
+          const data = JSON.parse(text);
+          const first = data?.keywordList?.[0];
+          results.naverAd = { status: 200, keyword: first?.relKeyword, pc: first?.monthlyPcQcCnt, mobile: first?.monthlyMobileQcCnt, total: data?.keywordList?.length + "개 키워드" };
+        } catch {}
       }
     } else {
-      results.naverAd = { error: "환경변수 미설정" };
+      results.naverAd = { error: "환경변수 미설정", detail: { key: !!adApiKey, secret: !!adSecret, customer: !!adCustomerId } };
     }
   } catch (e) { results.naverAd = { error: e.message }; }
 
