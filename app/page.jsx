@@ -203,11 +203,22 @@ const ProgressBar=({value,max,color="#6366f1"})=>{
 };
 
 function SimpleForm({fields,onSave,initial}){
-  const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");return{k,l,p};});
+  const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");const isDate=/date/i.test(k);const opts=(p&&p.includes(" / ")&&!p.startsWith("예:"))?p.split(" / ").map(s=>s.trim()):null;return{k,l,p,isDate,opts};});
   const[form,setForm]=useState(initial?{...initial}:{});
   return (
     <div>
-      {parsed.map(({k,l,p})=><FF key={k} label={l}><Inp value={form[k]||""} onChange={v=>setForm({...form,[k]:v})} placeholder={p||""}/></FF>)}
+      {parsed.map(({k,l,p,isDate,opts})=><FF key={k} label={l}>{isDate?(
+        <input type="date" value={form[k]||""} onChange={e=>setForm({...form,[k]:e.target.value})} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
+      ):opts?(
+        <div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+            {opts.map(o=><button key={o} type="button" onClick={()=>setForm({...form,[k]:o})} style={{background:form[k]===o?"#6366f1":"#1e293b",color:form[k]===o?"#fff":"#94a3b8",border:form[k]===o?"1px solid #6366f1":"1px solid #334155",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,fontWeight:form[k]===o?700:400,transition:"all 0.15s"}}>{o}</button>)}
+          </div>
+          <Inp value={form[k]||""} onChange={v=>setForm({...form,[k]:v})} placeholder="직접 입력도 가능"/>
+        </div>
+      ):(
+        <Inp value={form[k]||""} onChange={v=>setForm({...form,[k]:v})} placeholder={p||""}/>
+      )}</FF>)}
       <Btn onClick={()=>onSave(form)} style={{width:"100%",marginTop:4}}>저장</Btn>
     </div>
   );
@@ -215,7 +226,7 @@ function SimpleForm({fields,onSave,initial}){
 
 
 function OfflineForm({fields,onSave,initial}){
-  const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");return{k,l,p};});
+  const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");const opts=(p&&p.includes(" / ")&&!p.startsWith("예:"))?p.split(" / ").map(s=>s.trim()):null;return{k,l,p,opts};});
   const[form,setForm]=useState(initial?{...initial}:{});
   const u=(k,v)=>setForm(prev=>{const nf={...prev,[k]:v};
     if(k==="startDate"||k==="endDate"||k==="totalCost"){
@@ -230,10 +241,17 @@ function OfflineForm({fields,onSave,initial}){
   });
   return (
     <div>
-      {parsed.map(({k,l,p})=>(
+      {parsed.map(({k,l,p,opts})=>(
         <FF key={k} label={l}>
           {(k==="startDate"||k==="endDate")?(
             <input type="date" value={form[k]||""} onChange={e=>u(k,e.target.value)} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
+          ):opts?(
+            <div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                {opts.map(o=><button key={o} type="button" onClick={()=>u(k,o)} style={{background:form[k]===o?"#6366f1":"#1e293b",color:form[k]===o?"#fff":"#94a3b8",border:form[k]===o?"1px solid #6366f1":"1px solid #334155",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,fontWeight:form[k]===o?700:400,transition:"all 0.15s"}}>{o}</button>)}
+              </div>
+              <Inp value={form[k]||""} onChange={v=>u(k,v)} placeholder="직접 입력도 가능"/>
+            </div>
           ):(
             <Inp value={form[k]||""} onChange={v=>u(k,v)} placeholder={p||""}/>
           )}
