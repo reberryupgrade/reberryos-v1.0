@@ -1076,7 +1076,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
         else if(r.googleMap?.titles?.length)updates.google="미노출";
         if(r.kakaoMap?.rank)updates.kakao=r.kakaoMap.rank+"위";
         else if(r.kakaoMap?.titles?.length)updates.kakao="미노출";
-        updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[]};
+        updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
         const rn=parseInt(updates.naverPlace)||99;const rg=parseInt(updates.google)||99;const rk=parseInt(updates.kakao)||99;
         const best=Math.min(rn,rg,rk);updates.status=best<=3?"good":best<=5?"warn":"danger";
         upd("maps",dataRef.current.maps.map(m=>m.id===mapItem.id?{...m,...updates}:m));
@@ -1104,6 +1104,15 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
       if(d.results?.reviews){setModal({type:"reviews",data:d.results.reviews,keyword,platform});}
       else{alert((platform==="naver"?"플레이스":platform==="google"?"구글맵":"카카오맵")+" 리뷰를 가져올 수 없습니다.");}
     }catch(e){alert("오류: "+e.message);}
+    setRankLoading(null);
+  };
+  const runApiDiag=async()=>{
+    setRankLoading("diag");
+    try{
+      const res=await fetch("/api/naver-rank/test");
+      const d=await res.json();
+      setModal({type:"apiDiag",data:d});
+    }catch(e){alert("진단 실패: "+e.message);}
     setRankLoading(null);
   };
   const[ytChTab,setYtChTab]=useState("all");
@@ -1957,7 +1966,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* MAPS */}
           {tab==="maps"&&(
-            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6}}><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
+            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6}}><Btn color="#f59e0b" onClick={()=>runApiDiag()} disabled={rankLoading==="diag"}>{rankLoading==="diag"?"⏳":"🔧 API 진단"}</Btn><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
               <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",marginBottom:14,border:"1px solid #334155"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                   <div style={{fontWeight:700,fontSize:13,color:"#10b981"}}>🎯 내 콘텐츠 식별자</div>
@@ -1994,12 +2003,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                   <div style={{maxHeight:"60vh",overflowY:"auto"}}>
                     {[{key:"place",label:"📍 네이버 플레이스",color:"#06b6d4"},{key:"googleMap",label:"🌐 구글맵",color:"#f97316"},{key:"kakaoMap",label:"🟡 카카오맵",color:"#fbbf24"}].map(sec=>{
                       const items=modal.item._mapDetail?.[sec.key]||[];
-                      if(!items.length)return null;
                       const tgt=(data.rankTargets?.placeName||"").toLowerCase();
                       return(
                         <div key={sec.key} style={{marginBottom:16}}>
-                          <div style={{color:sec.color,fontWeight:700,fontSize:13,marginBottom:8}}>{sec.label} ({items.length}건)</div>
-                          {items.map((t,i)=>{
+                          <div style={{color:sec.color,fontWeight:700,fontSize:13,marginBottom:8}}>{sec.label} ({items.length}건){items.length===0&&<span style={{color:"#ef4444",fontSize:11,marginLeft:8}}>결과 없음</span>}</div>
+                          {items.length>0?items.map((t,i)=>{
                             const isMe=tgt&&t.toLowerCase().includes(tgt);
                             return(
                               <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:isMe?"#1e293b":"#0f172a",borderRadius:8,marginBottom:4,border:isMe?"1px solid "+sec.color:"1px solid transparent"}}>
@@ -2008,7 +2016,34 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                                 {isMe&&<span style={{background:sec.color,color:"#fff",borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>내 업체</span>}
                               </div>
                             );
-                          })}
+                          }):<div style={{color:"#475569",fontSize:12,padding:"8px 10px"}}>데이터를 가져올 수 없습니다</div>}
+                        </div>
+                      );
+                    })}
+                    {modal.item._mapDetail?._kakaoDebug&&(
+                      <div style={{background:"#1a1a2e",borderRadius:8,padding:"10px 14px",marginTop:8,border:"1px solid #334155"}}>
+                        <div style={{color:"#f59e0b",fontSize:11,fontWeight:700,marginBottom:6}}>🔧 카카오맵 디버그</div>
+                        <pre style={{color:"#94a3b8",fontSize:10,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(modal.item._mapDetail._kakaoDebug,null,2)}</pre>
+                      </div>
+                    )}
+                  </div>
+                </Modal>
+              )}
+              {modal?.type==="apiDiag"&&(
+                <Modal title="🔧 API 연동 진단" onClose={()=>setModal(null)} wide>
+                  <div style={{maxHeight:"65vh",overflowY:"auto"}}>
+                    <div style={{color:"#94a3b8",fontSize:11,marginBottom:12}}>테스트 키워드: {modal.data.keyword} | {modal.data.timestamp}</div>
+                    {Object.entries(modal.data.results||{}).map(([key,val])=>{
+                      const labels={env:"📋 환경변수",kakao:"🟡 카카오맵 API",naverAd:"📊 네이버 검색광고 API",google:"🌐 구글맵",naverMap:"🗺️ 네이버 지도"};
+                      const isOk=val.status===200||val.results||val.placeCount>0||key==="env";
+                      const hasError=val.error||val.status>=400;
+                      return(
+                        <div key={key} style={{background:hasError?"#1a0f0f":"#0f172a",borderRadius:10,padding:"12px 16px",marginBottom:10,borderLeft:`3px solid ${hasError?"#ef4444":isOk?"#10b981":"#f59e0b"}`}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{labels[key]||key}</span>
+                            <span style={{color:hasError?"#ef4444":isOk?"#10b981":"#f59e0b",fontSize:12,fontWeight:700}}>{hasError?"❌ 실패":isOk?"✅ 정상":"⚠️ 확인필요"}</span>
+                          </div>
+                          <pre style={{color:"#94a3b8",fontSize:11,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",background:"#0a0f1a",borderRadius:6,padding:8}}>{JSON.stringify(val,null,2)}</pre>
                         </div>
                       );
                     })}

@@ -153,20 +153,29 @@ export async function POST(req) {
     try {
       const kakaoKey = process.env.KAKAO_REST_API_KEY;
       let kTitles = [];
+      let kakaoDebug = { hasKey: !!kakaoKey, keyPrefix: kakaoKey ? kakaoKey.slice(0,4)+"..." : "없음" };
       if (kakaoKey) {
         const kRes = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encoded}&size=10`, { headers: {"Authorization":`KakaoAK ${kakaoKey}`} });
-        const kData = await kRes.json();
-        kTitles = (kData?.documents || []).map(d => d.place_name).filter(Boolean);
+        kakaoDebug.status = kRes.status;
+        const kText = await kRes.text();
+        kakaoDebug.responsePreview = kText.slice(0,200);
+        try {
+          const kData = JSON.parse(kText);
+          kakaoDebug.docCount = kData?.documents?.length || 0;
+          kTitles = (kData?.documents || []).map(d => d.place_name).filter(Boolean);
+        } catch (pe) { kakaoDebug.parseError = pe.message; }
       }
       if (!kTitles.length) {
         const k2 = await fetch(`https://search.map.kakao.com/mapsearch/map.daum?q=${encoded}&msFlag=A&sort=0`, { headers });
+        kakaoDebug.fallbackStatus = k2.status;
         const k2T = await k2.text();
+        kakaoDebug.fallbackPreview = k2T.slice(0,200);
         try { const kD = JSON.parse(k2T); kTitles = (kD?.place||kD?.result?.place||[]).map(p=>p.placeName||p.name).filter(Boolean); }
         catch { const kP = [/"placeName"\s*:\s*"([^"]+)"/g,/"name"\s*:\s*"([^"]+)"/g]; for (const p of kP) { let m; while ((m = p.exec(k2T)) !== null) { if (m[1] && !kTitles.includes(m[1]) && m[1].length>1) kTitles.push(m[1]); } } }
       }
-      results.kakaoMap = { titles: kTitles.slice(0,10) };
+      results.kakaoMap = { titles: kTitles.slice(0,10), _debug: kakaoDebug };
       if (targets?.placeName && kTitles.length) { const i = kTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.kakaoMap.rank = i>=0 ? i+1 : null; }
-    } catch (e) { results.kakaoMap = { error: e.message, titles: [] }; }
+    } catch (e) { results.kakaoMap = { error: e.message, titles: [], _debug: { catchError: e.message } }; }
 
     // ============ 7. 리뷰 + 감성분석 (플랫폼별) ============
     if (action === "reviews" && targets?.placeName) {
