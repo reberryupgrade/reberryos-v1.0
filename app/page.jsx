@@ -1020,7 +1020,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     else if(r.googleMap?.titles?.length)updates.rankGoogle="미노출";
     if(r.kakaoMap?.rank)updates.rankKakao=r.kakaoMap.rank+"위";
     else if(r.kakaoMap?.titles?.length)updates.rankKakao="미노출";
-    if(r.tabOrder)updates.detectedTabOrder=r.tabOrder;
+    if(r.tabOrder&&r.tabOrder.length>0)updates.detectedTabOrder=r.tabOrder;
     if(r.monthlySearch)updates.monthlySearch=r.monthlySearch;
     if(r.monthlySearchDetail)updates.monthlySearchDetail=r.monthlySearchDetail;
     updates._rankDetail={
@@ -1028,7 +1028,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
       knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
       powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[],
       googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],
-      tabOrder:r.tabOrder||[]
+      tabOrder:r.tabOrder&&r.tabOrder.length>0?r.tabOrder:(k.detectedTabOrder||[])
     };
     return updates;
   };

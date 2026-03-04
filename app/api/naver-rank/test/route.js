@@ -11,6 +11,7 @@ export async function GET() {
   const testKeyword = "강남 피부과";
   const encoded = encodeURIComponent(testKeyword);
   const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  const headers = { "User-Agent": ua, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "ko-KR,ko;q=0.9", "Referer": "https://www.naver.com/" };
 
   // 2. 카카오 API 테스트
   try {
@@ -22,11 +23,10 @@ export async function GET() {
       const text = await res.text();
       results.kakao = {
         status: res.status,
-        statusText: res.statusText,
         results: res.status === 200 ? JSON.parse(text)?.documents?.map(d => d.place_name).slice(0, 3) : text.slice(0, 300)
       };
     } else {
-      results.kakao = { error: "KAKAO_REST_API_KEY 환경변수가 없습니다" };
+      results.kakao = { error: "KAKAO_REST_API_KEY 미설정" };
     }
   } catch (e) { results.kakao = { error: e.message }; }
 
@@ -41,32 +41,23 @@ export async function GET() {
       const hmac = crypto.createHmac("sha256", adSecret);
       hmac.update(timestamp + ".GET./keywordstool");
       const signature = hmac.digest("base64");
-
-      // encodeURIComponent 사용 (공백을 %20으로)
-      const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encodeURIComponent(testKeyword)}&showDetail=1`;
-
-      results.naverAd_debug = { url: apiUrl, timestamp, customerId: adCustomerId };
-
+      const apiUrl = `https://api.naver.com/keywordstool?hintKeywords=${encodeURIComponent(testKeyword)}&showDetail=1`;
       const res = await fetch(apiUrl, {
         method: "GET",
-        headers: {
-          "X-Timestamp": timestamp,
-          "X-API-KEY": adApiKey,
-          "X-Customer": adCustomerId,
-          "X-Signature": signature,
-        }
+        headers: { "X-Timestamp": timestamp, "X-API-KEY": adApiKey, "X-Customer": adCustomerId, "X-Signature": signature }
       });
       const text = await res.text();
-      results.naverAd = { status: res.status, response: text.slice(0, 500) };
       if (res.status === 200) {
         try {
           const data = JSON.parse(text);
           const first = data?.keywordList?.[0];
           results.naverAd = { status: 200, keyword: first?.relKeyword, pc: first?.monthlyPcQcCnt, mobile: first?.monthlyMobileQcCnt, total: data?.keywordList?.length + "개 키워드" };
-        } catch {}
+        } catch { results.naverAd = { status: 200, parseError: true, response: text.slice(0, 300) }; }
+      } else {
+        results.naverAd = { status: res.status, response: text.slice(0, 500) };
       }
     } else {
-      results.naverAd = { error: "환경변수 미설정", detail: { key: !!adApiKey, secret: !!adSecret, customer: !!adCustomerId } };
+      results.naverAd = { error: "환경변수 미설정" };
     }
   } catch (e) { results.naverAd = { error: e.message }; }
 
@@ -92,5 +83,46 @@ export async function GET() {
     }
   } catch (e) { results.naverMap = { error: e.message }; }
 
-  return Response.json({ test: "REBERRYOS API 진단", timestamp: new Date().toISOString(), keyword: testKeyword, results });
+  // 6. 탭 순서 감지 테스트 (핵심 디버그!)
+  try {
+    const res = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}`, { headers });
+    const html = await res.text();
+    const tabDebug = { htmlLength: html.length, status: res.status };
+
+    // 방법1: data-module-name
+    const moduleMap = { "powerlink":"파워링크","nx_brand_search":"브랜드검색","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","book":"도서","encyc":"지식백과" };
+    const method1 = [];
+    const modRe = /data-module-name="(\w+)"/g;
+    let mm; while ((mm = modRe.exec(html)) !== null) { method1.push(mm[1]); }
+    tabDebug.method1_raw = method1.slice(0, 20);
+    tabDebug.method1_mapped = [...new Set(method1.map(m => moduleMap[m]).filter(Boolean))];
+
+    // 방법2: sc_new sp_*
+    const method2 = [];
+    const scRe = /class="[^"]*sc_new\s+sp_(\w+)/g;
+    while ((mm = scRe.exec(html)) !== null) { method2.push(mm[1]); }
+    tabDebug.method2_raw = method2.slice(0, 20);
+
+    // 방법5: 직접 섹션 키워드 검색
+    const sectionSearch = {};
+    const checks = ["파워링크","플레이스","블로그","카페","지식iN","뉴스","이미지","동영상","쇼핑"];
+    for (const c of checks) {
+      const idx = html.indexOf(c);
+      sectionSearch[c] = idx >= 0 ? `발견(위치:${idx})` : "미발견";
+    }
+    tabDebug.sectionSearch = sectionSearch;
+
+    // HTML 앞부분 샘플
+    tabDebug.htmlSample = html.slice(0, 500).replace(/</g, "&lt;").slice(0, 300);
+
+    // 실제 사용되는 class 패턴 샘플
+    const classPatterns = [];
+    const cpRe = /class="([^"]*(?:sc_new|api_subject|fds-comps|module)[^"]*)"/g;
+    while ((mm = cpRe.exec(html)) !== null && classPatterns.length < 15) { classPatterns.push(mm[1]); }
+    tabDebug.classPatterns = classPatterns;
+
+    results.tabOrder = tabDebug;
+  } catch (e) { results.tabOrder = { error: e.message }; }
+
+  return Response.json({ test: "REBERRYOS API 진단 v1.1.4", timestamp: new Date().toISOString(), keyword: testKeyword, results });
 }

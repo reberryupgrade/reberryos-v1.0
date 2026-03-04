@@ -314,7 +314,7 @@ export async function POST(req) {
         const signature = hmac.digest("base64");
 
         // encodeURIComponent로 직접 인코딩 (공백=%20)
-        const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encodeURIComponent(keyword)}&showDetail=1`;
+        const apiUrl = `https://api.naver.com/keywordstool?hintKeywords=${encodeURIComponent(keyword)}&showDetail=1`;
 
         const svRes = await fetch(apiUrl, {
           method: "GET",
