@@ -10,6 +10,33 @@ const supabase = createClient(
 );
 
 const TAB_TYPES = ["블로그","지식인","카페","플레이스","뉴스","파워링크"];
+
+const YT_API_KEY="AIzaSyBaQzlNcJldt5zuPR_1CtD-1zsBvcKITl0";
+function extractYtId(url){if(!url)return null;const m=url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);return m?m[1]:null;}
+async function fetchYtVideo(videoId){
+  try{
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${YT_API_KEY}`);
+    const d=await r.json();if(!d.items||!d.items.length)return null;
+    const item=d.items[0];const s=item.statistics;const sn=item.snippet;
+    return{title:sn.title,views:+(s.viewCount||0),likes:+(s.likeCount||0),commentCount:+(s.commentCount||0),channelTitle:sn.channelTitle,channelId:sn.channelId,thumbnail:sn.thumbnails?.medium?.url||"",publishedAt:sn.publishedAt?.split("T")[0]||""};
+  }catch(e){console.error("YT video fetch error:",e);return null;}
+}
+async function fetchYtComments(videoId,maxResults=20){
+  try{
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=${maxResults}&order=time&key=${YT_API_KEY}`);
+    const d=await r.json();if(!d.items)return[];
+    return d.items.map(item=>{const s=item.snippet.topLevelComment.snippet;return{author:s.authorDisplayName,text:s.textDisplay?.replace(/<[^>]*>/g,"")||"",date:s.publishedAt?.split("T")[0]||"",likes:+(s.likeCount||0)};});
+  }catch(e){console.error("YT comments fetch error:",e);return[];}
+}
+async function fetchYtChannel(channelId){
+  try{
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${YT_API_KEY}`);
+    const d=await r.json();if(!d.items||!d.items.length)return null;
+    const s=d.items[0].statistics;const sn=d.items[0].snippet;
+    return{name:sn.title,subscribers:+(s.subscriberCount||0),totalViews:+(s.viewCount||0),videoCount:+(s.videoCount||0)};
+  }catch(e){console.error("YT channel fetch error:",e);return null;}
+}
+
 const COMM_PLATFORMS = ["당근마켓","에브리타임","맘카페","지역카페"];
 const TABS = [
   {id:"overview",label:"전체 현황"},
@@ -927,6 +954,31 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
   const updComm=(p,k,v)=>setData(d=>({...d,community:{...d.community,[p]:{...d.community[p],[k]:v}}}));
   const del=(key,id)=>upd(key,data[key].filter(r=>r.id!==id));
 
+
+  const[ytLoading,setYtLoading]=useState(null);
+  const ytRefresh=async(item,key="youtube")=>{
+    const vid=extractYtId(item.url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return;}
+    setYtLoading(item.id);
+    try{
+      const[vd,cm]=await Promise.all([fetchYtVideo(vid),fetchYtComments(vid)]);
+      if(!vd){alert("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
+      const updated={...item,title:vd.title||item.title,views:vd.views,likes:vd.likes,commentCount:vd.commentCount,comments:cm,channelTitle:vd.channelTitle,channelId:vd.channelId,thumbnail:vd.thumbnail,lastUpdated:today()};
+      upd(key,data[key].map(r=>r.id===item.id?{...r,...updated}:r));
+    }catch(e){alert("API 오류: "+e.message);}
+    setYtLoading(null);
+  };
+  const ytAddByUrl=async(url,key="youtube",platform="")=>{
+    const vid=extractYtId(url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return false;}
+    setYtLoading("adding");
+    try{
+      const[vd,cm]=await Promise.all([fetchYtVideo(vid),fetchYtComments(vid)]);
+      if(!vd){alert("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return false;}
+      const entry={id:Date.now(),url,title:vd.title,views:vd.views,likes:vd.likes,commentCount:vd.commentCount,comments:cm,channelTitle:vd.channelTitle,channelId:vd.channelId,thumbnail:vd.thumbnail,lastUpdated:today()};
+      if(platform)entry.platform=platform;
+      upd(key,[...data[key],entry]);
+    }catch(e){alert("API 오류: "+e.message);}
+    setYtLoading(null);return true;
+  };
   const simRefresh=(key,item)=>{upd(key,data[key].map(r=>r.id===item.id?{...r,views:Math.max(0,(r.views||0)+Math.floor(Math.random()*200+20)),lastUpdated:today()}:r));};
   const simRefreshComm=(p,item)=>{updComm(p,"items",data.community[p].items.map(r=>r.id===item.id?{...r,views:Math.max(0,(r.views||0)+Math.floor(Math.random()*100+10)),lastUpdated:today()}:r));};
 
@@ -1745,30 +1797,45 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* YOUTUBE */}
           {tab==="youtube"&&(
-            <SectionWithCost title="유튜브" cost={data.youtubeCost} onCostChange={v=>upd("youtubeCost",v)} color={CHANNEL_COLORS.youtube} right={<Btn onClick={()=>setModal("yt")}>+ 추가</Btn>}>
+            <SectionWithCost title="유튜브" cost={data.youtubeCost} onCostChange={v=>upd("youtubeCost",v)} color={CHANNEL_COLORS.youtube} right={<Btn onClick={()=>setModal({type:"addYt",_ytUrl:""})}>+ 추가</Btn>}>
+              {data.youtube.some(y=>y.channelTitle)&&(
+                <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+                  {[...new Set(data.youtube.filter(y=>y.channelTitle).map(y=>JSON.stringify({name:y.channelTitle,id:y.channelId})))].map(ch=>{const c2=JSON.parse(ch);return(
+                    <div key={c2.id} style={{background:"#1e293b",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:16}}>📺</span>
+                      <span style={{fontWeight:700,fontSize:13}}>{c2.name}</span>
+                      <button onClick={async()=>{const info=await fetchYtChannel(c2.id);if(info)alert(`${info.name}\n구독자: ${info.subscribers.toLocaleString()}명\n총 조회수: ${info.totalViews.toLocaleString()}\n영상 수: ${info.videoCount}`);}} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>채널 정보</button>
+                    </div>
+                  );})}
+                </div>
+              )}
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr><Th c="제목"/><Th c="조회수"/><Th c="댓글"/><Th c="좋아요"/><Th c="갱신"/><Th c="URL"/><Th c=""/></tr></thead>
                 <tbody>{data.youtube.map((y,ri)=>(
                   <tr key={y.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
                     <Td><LinkCell url={y.url}><span style={{fontWeight:700}}>{y.title}</span></LinkCell></Td>
                     <Td><span style={{color:"#06b6d4"}}>{fmt(y.views)}</span></Td>
-                    <Td><button onClick={()=>setModal({type:"comments",comments:y.comments,title:y.title})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>💬 {y.comments?.length||0}</button></Td>
-                    <Td>{y.likes}</Td>
+                    <Td><button onClick={()=>setModal({type:"comments",comments:y.comments,title:y.title})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>💬 {y.commentCount||y.comments?.length||0}</button></Td>
+                    <Td><span style={{color:"#f43f5e"}}>{fmt(y.likes)}</span></Td>
                     <Td><span style={{color:"#475569",fontSize:12}}>{y.lastUpdated}</span></Td>
-                    <Td><div style={{display:"flex",gap:6}}><input value={y.url||""} onChange={e=>upd("youtube",data.youtube.map(r=>r.id===y.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>simRefresh("youtube",y)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button></div></Td>
+                    <Td><div style={{display:"flex",gap:6}}><input value={y.url||""} onChange={e=>upd("youtube",data.youtube.map(r=>r.id===y.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>ytRefresh(y,"youtube")} disabled={ytLoading===y.id} style={{background:ytLoading===y.id?"#1e293b":"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>{ytLoading===y.id?"⏳":"↻"}</button></div></Td>
                     <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editYt",item:y})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("youtube",y.id)}/></div></Td>
                   </tr>
                 ))}</tbody>
               </table>
               {modal?.type==="editYt"&&<Modal title="유튜브 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} initial={modal.item} onSave={f=>{upd("youtube",data.youtube.map(x=>x.id===modal.item.id?{...x,...f,views:+f.views||0,likes:+f.likes||0}:x));setModal(null);}}/></Modal>}
-              {modal==="yt"&&<Modal title="유튜브 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("youtube",[...data.youtube,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></Modal>}
+              {modal?.type==="addYt"&&<Modal title="유튜브 추가" onClose={()=>setModal(null)}><div>
+                <FF label="YouTube URL"><Inp value={modal?._ytUrl||""} onChange={v=>setModal({...modal,_ytUrl:v})} placeholder="https://youtube.com/watch?v=... 또는 shorts/..."/></FF>
+                <Btn onClick={async()=>{const ok=await ytAddByUrl(modal?._ytUrl||"","youtube");if(ok)setModal(null);}} disabled={ytLoading==="adding"} style={{width:"100%",marginTop:4}}>{ytLoading==="adding"?"⏳ 데이터 가져오는 중...":"URL로 자동 추가"}</Btn>
+                <div style={{textAlign:"center",color:"#475569",fontSize:12,margin:"10px 0"}}>또는 직접 입력</div>
+                <SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("youtube",[...data.youtube,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></div></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
           )}
 
           {/* SHORTFORM */}
           {tab==="shortform"&&(
-            <SectionWithCost title="숏폼" cost={data.shortformCost} onCostChange={v=>upd("shortformCost",v)} color={CHANNEL_COLORS.shortform} right={<Btn onClick={()=>setModal("sf")}>+ 추가</Btn>}>
+            <SectionWithCost title="숏폼" cost={data.shortformCost} onCostChange={v=>upd("shortformCost",v)} color={CHANNEL_COLORS.shortform} right={<Btn onClick={()=>setModal({type:"addSf",_sfUrl:""})}>+ 추가</Btn>}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr><Th c="플랫폼"/><Th c="제목"/><Th c="조회수"/><Th c="댓글"/><Th c="좋아요"/><Th c="갱신"/><Th c="URL"/><Th c=""/></tr></thead>
                 <tbody>{data.shortform.map((s,ri)=>(
@@ -1779,13 +1846,17 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Td><button onClick={()=>setModal({type:"comments",comments:s.comments,title:s.title})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>💬 {s.comments?.length||0}</button></Td>
                     <Td>{s.likes}</Td>
                     <Td><span style={{color:"#475569",fontSize:12}}>{s.lastUpdated}</span></Td>
-                    <Td><div style={{display:"flex",gap:6}}><input value={s.url||""} onChange={e=>upd("shortform",data.shortform.map(r=>r.id===s.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>simRefresh("shortform",s)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button></div></Td>
+                    <Td><div style={{display:"flex",gap:6}}><input value={s.url||""} onChange={e=>upd("shortform",data.shortform.map(r=>r.id===s.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>{if(extractYtId(s.url))ytRefresh(s,"shortform");else simRefresh("shortform",s);}} disabled={ytLoading===s.id} style={{background:ytLoading===s.id?"#1e293b":"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>{ytLoading===s.id?"⏳":"↻"}</button></div></Td>
                     <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editSf",item:s})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("shortform",s.id)}/></div></Td>
                   </tr>
                 ))}</tbody>
               </table>
               {modal?.type==="editSf"&&<Modal title="숏폼 편집" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼|인스타그램 / 틱톡 / 유튜브쇼츠","title:제목","url:URL","views:조회수","likes:좋아요수"]} initial={modal.item} onSave={f=>{upd("shortform",data.shortform.map(x=>x.id===modal.item.id?{...x,...f,views:+f.views||0,likes:+f.likes||0}:x));setModal(null);}}/></Modal>}
-              {modal==="sf"&&<Modal title="숏폼 추가" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼|인스타그램 / 틱톡 / 유튜브쇼츠","title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("shortform",[...data.shortform,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></Modal>}
+              {modal?.type==="addSf"&&<Modal title="숏폼 추가" onClose={()=>setModal(null)}><div>
+                <FF label="YouTube Shorts URL (자동)"><Inp value={modal?._sfUrl||""} onChange={v=>setModal({...modal,_sfUrl:v})} placeholder="https://youtube.com/shorts/..."/></FF>
+                <Btn onClick={async()=>{const ok=await ytAddByUrl(modal?._sfUrl||"","shortform","유튜브쇼츠");if(ok)setModal(null);}} disabled={ytLoading==="adding"} style={{width:"100%",marginTop:4}}>{ytLoading==="adding"?"⏳ 데이터 가져오는 중...":"URL로 자동 추가"}</Btn>
+                <div style={{textAlign:"center",color:"#475569",fontSize:12,margin:"10px 0"}}>또는 직접 입력 (인스타/틱톡)</div>
+                <SimpleForm fields={["platform:플랫폼|인스타그램 / 틱톡 / 유튜브쇼츠","title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("shortform",[...data.shortform,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></div></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
           )}
