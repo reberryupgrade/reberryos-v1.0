@@ -202,13 +202,59 @@ const ProgressBar=({value,max,color="#6366f1"})=>{
   );
 };
 
-function SimpleForm({fields,onSave}){
+function SimpleForm({fields,onSave,initial}){
   const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");return{k,l,p};});
-  const[form,setForm]=useState({});
+  const[form,setForm]=useState(initial?{...initial}:{});
   return (
     <div>
       {parsed.map(({k,l,p})=><FF key={k} label={l}><Inp value={form[k]||""} onChange={v=>setForm({...form,[k]:v})} placeholder={p||""}/></FF>)}
       <Btn onClick={()=>onSave(form)} style={{width:"100%",marginTop:4}}>저장</Btn>
+    </div>
+  );
+}
+
+
+function OfflineForm({fields,onSave,initial}){
+  const parsed=fields.map(f=>{const[k,r]=f.split(":");const[l,p]=(r||k).split("|");return{k,l,p};});
+  const[form,setForm]=useState(initial?{...initial}:{});
+  const u=(k,v)=>setForm(prev=>{const nf={...prev,[k]:v};
+    if(k==="startDate"||k==="endDate"||k==="totalCost"){
+      const s=nf.startDate,e=nf.endDate,tc=+(nf.totalCost||0);
+      if(s&&e&&tc){
+        const sd=new Date(s),ed=new Date(e);
+        const months=Math.max(1,Math.round((ed-sd)/(1000*60*60*24*30.44)*10)/10);
+        nf._months=months;nf._monthlyCost=Math.round(tc/months);
+      }else{nf._months=null;nf._monthlyCost=null;}
+    }
+    return nf;
+  });
+  return (
+    <div>
+      {parsed.map(({k,l,p})=>(
+        <FF key={k} label={l}>
+          {(k==="startDate"||k==="endDate")?(
+            <input type="date" value={form[k]||""} onChange={e=>u(k,e.target.value)} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
+          ):(
+            <Inp value={form[k]||""} onChange={v=>u(k,v)} placeholder={p||""}/>
+          )}
+        </FF>
+      ))}
+      <FF label="총 비용 (원)">
+        <Inp value={form.totalCost||""} onChange={v=>u("totalCost",v)} placeholder="계약 총 비용"/>
+      </FF>
+      {form._months&&form._monthlyCost!=null&&(
+        <div style={{background:"#1e293b",borderRadius:10,padding:"12px 16px",marginTop:8,marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{color:"#94a3b8",fontSize:13}}>계약 기간</span>
+            <span style={{color:"#e2e8f0",fontWeight:700,fontSize:14}}>{form._months}개월</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between"}}>
+            <span style={{color:"#94a3b8",fontSize:13}}>월 환산 비용</span>
+            <span style={{color:"#f59e0b",fontWeight:800,fontSize:16}}>{"\u20A9"+(form._monthlyCost||0).toLocaleString()}</span>
+          </div>
+        </div>
+      )}
+      <Btn onClick={()=>{const out={...form};if(form._monthlyCost!=null)out.cost=form._monthlyCost;out.totalCost=+(form.totalCost||0);delete out._months;delete out._monthlyCost;onSave(out);}} style={{width:"100%",marginTop:4}}>저장</Btn>
     </div>
   );
 }
@@ -1637,10 +1683,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Td><span style={{color:"#475569",fontSize:12}}>{e.lastUpdated}</span></Td>
                     <Td><Badge status={e.status}/></Td>
                     <Td><div style={{display:"flex",gap:6}}><input value={e.url||""} onChange={ev=>upd("experience",data.experience.map(r=>r.id===e.id?{...r,url:ev.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>simRefresh("experience",e)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button></div></Td>
-                    <Td><DelBtn onClick={()=>del("experience",e.id)}/></Td>
+                    <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editExp",item:e})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("experience",e.id)}/></div></Td>
                   </tr>
                 ))}</tbody>
               </table>
+              {modal?.type==="editExp"&&<Modal title="체험단 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","platform:플랫폼|네이버블로그 / 네이버카페","url:URL","views:조회수","comments:댓글수"]} initial={modal.item} onSave={f=>{upd("experience",data.experience.map(x=>x.id===modal.item.id?{...x,...f,views:+f.views||0,comments:+f.comments||0}:x));setModal(null);}}/></Modal>}
               {modal==="exp"&&<Modal title="체험단 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","platform:플랫폼|네이버블로그 / 네이버카페","url:URL","views:조회수","comments:댓글수"]} onSave={f=>{upd("experience",[...data.experience,{...f,id:Date.now(),views:+f.views||0,comments:+f.comments||0,status:"warn",lastUpdated:today()}]);setModal(null);}}/></Modal>}
             </SectionWithCost>
           )}
@@ -1657,7 +1704,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       <span style={{background:cafe.penetrated?"#10b981":"#ef4444",color:"#fff",borderRadius:99,padding:"2px 9px",fontSize:12,fontWeight:700}}>{cafe.penetrated?"✓ 완료":"✗ 미침투"}</span>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <button onClick={()=>upd("cafes",data.cafes.map(c=>c.id===cafe.id?{...c,penetrated:!c.penetrated}:c))} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12}}>상태전환</button>
+                      <button onClick={()=>setModal({type:"editCafe",item:cafe})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12}}>편집</button><button onClick={()=>upd("cafes",data.cafes.map(c=>c.id===cafe.id?{...c,penetrated:!c.penetrated}:c))} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12}}>상태전환</button>
                       <Btn onClick={()=>setModal({type:"addPost",cafeId:cafe.id})} style={{padding:"5px 12px",fontSize:12}}>+ 게시물</Btn>
                       <DelBtn onClick={()=>upd("cafes",data.cafes.filter(c=>c.id!==cafe.id))}/>
                     </div>
@@ -1671,14 +1718,16 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                           <Td><span style={{color:"#06b6d4"}}>{fmt(post.views)}</span></Td>
                           <Td><button onClick={()=>setModal({type:"comments",comments:post.comments,title:post.title})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>💬 {post.comments?.length||0}</button></Td>
                           <Td><input value={post.url||""} onChange={e=>upd("cafes",data.cafes.map(c=>c.id===cafe.id?{...c,posts:c.posts.map(p=>p.id===post.id?{...p,url:e.target.value}:p)}:c))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/></Td>
-                          <Td><DelBtn onClick={()=>upd("cafes",data.cafes.map(c=>c.id===cafe.id?{...c,posts:c.posts.filter(p=>p.id!==post.id)}:c))}/></Td>
+                          <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editPost",cafeId:cafe.id,item:post})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>upd("cafes",data.cafes.map(c=>c.id===cafe.id?{...c,posts:c.posts.filter(p=>p.id!==post.id)}:c))}/></div></Td>
                         </tr>
                       ))}</tbody>
                     </table>
                   )}
                 </div>
               ))}
+              {modal?.type==="editCafe"&&<Modal title="카페 편집" onClose={()=>setModal(null)}><SimpleForm fields={["name:카페명","members:회원수|예: 5만","url:카페 URL"]} initial={modal.item} onSave={f=>{upd("cafes",data.cafes.map(c=>c.id===modal.item.id?{...c,...f}:c));setModal(null);}}/></Modal>}
               {modal==="cafe"&&<Modal title="카페 추가" onClose={()=>setModal(null)}><SimpleForm fields={["name:카페명","members:회원수|예: 5만","url:카페 URL"]} onSave={f=>{upd("cafes",[...data.cafes,{...f,id:Date.now(),penetrated:false,posts:[]}]);setModal(null);}}/></Modal>}
+              {modal?.type==="editPost"&&<Modal title="게시물 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수"]} initial={modal.item} onSave={f=>{upd("cafes",data.cafes.map(c=>c.id===modal.cafeId?{...c,posts:c.posts.map(p=>p.id===modal.item.id?{...p,...f,views:+f.views||0}:p)}:c));setModal(null);}}/></Modal>}
               {modal?.type==="addPost"&&<Modal title="게시물 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수"]} onSave={f=>{upd("cafes",data.cafes.map(c=>c.id===modal.cafeId?{...c,posts:[...c.posts,{...f,id:Date.now(),views:+f.views||0,comments:[]}]}:c));setModal(null);}}/></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
@@ -1697,10 +1746,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Td>{y.likes}</Td>
                     <Td><span style={{color:"#475569",fontSize:12}}>{y.lastUpdated}</span></Td>
                     <Td><div style={{display:"flex",gap:6}}><input value={y.url||""} onChange={e=>upd("youtube",data.youtube.map(r=>r.id===y.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>simRefresh("youtube",y)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button></div></Td>
-                    <Td><DelBtn onClick={()=>del("youtube",y.id)}/></Td>
+                    <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editYt",item:y})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("youtube",y.id)}/></div></Td>
                   </tr>
                 ))}</tbody>
               </table>
+              {modal?.type==="editYt"&&<Modal title="유튜브 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} initial={modal.item} onSave={f=>{upd("youtube",data.youtube.map(x=>x.id===modal.item.id?{...x,...f,views:+f.views||0,likes:+f.likes||0}:x));setModal(null);}}/></Modal>}
               {modal==="yt"&&<Modal title="유튜브 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("youtube",[...data.youtube,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
@@ -1720,10 +1770,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Td>{s.likes}</Td>
                     <Td><span style={{color:"#475569",fontSize:12}}>{s.lastUpdated}</span></Td>
                     <Td><div style={{display:"flex",gap:6}}><input value={s.url||""} onChange={e=>upd("shortform",data.shortform.map(r=>r.id===s.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/><button onClick={()=>simRefresh("shortform",s)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button></div></Td>
-                    <Td><DelBtn onClick={()=>del("shortform",s.id)}/></Td>
+                    <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editSf",item:s})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("shortform",s.id)}/></div></Td>
                   </tr>
                 ))}</tbody>
               </table>
+              {modal?.type==="editSf"&&<Modal title="숏폼 편집" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼|인스타그램 / 틱톡 / 유튜브쇼츠","title:제목","url:URL","views:조회수","likes:좋아요수"]} initial={modal.item} onSave={f=>{upd("shortform",data.shortform.map(x=>x.id===modal.item.id?{...x,...f,views:+f.views||0,likes:+f.likes||0}:x));setModal(null);}}/></Modal>}
               {modal==="sf"&&<Modal title="숏폼 추가" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼|인스타그램 / 틱톡 / 유튜브쇼츠","title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("shortform",[...data.shortform,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
@@ -2305,12 +2356,13 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <input value={c.url||""} onChange={e=>updComm(commTab,"items",data.community[commTab].items.map(r=>r.id===c.id?{...r,url:e.target.value}:r))} placeholder="URL" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:140}}/>
                         <button onClick={()=>simRefreshComm(commTab,c)} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12}}>↻</button>
                       </div></Td>
-                      <Td><DelBtn onClick={()=>updComm(commTab,"items",data.community[commTab].items.filter(r=>r.id!==c.id))}/></Td>
+                      <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editComm",platform:commTab,item:c})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updComm(commTab,"items",data.community[commTab].items.filter(r=>r.id!==c.id))}/></div></Td>
                     </tr>
                   ))}
                   {!(data.community[commTab]?.items||[]).length&&<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#475569"}}>등록된 게시물이 없습니다.</td></tr>}
                 </tbody>
               </table>
+              {modal?.type==="editComm"&&<Modal title={`${modal.platform} 편집`} onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수"]} initial={modal.item} onSave={f=>{updComm(modal.platform,"items",data.community[modal.platform].items.map(r=>r.id===modal.item.id?{...r,...f,views:+f.views||0}:r));setModal(null);}}/></Modal>}
               {modal?.type==="addComm"&&<Modal title={`${modal.platform} 추가`} onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","url:URL","views:조회수"]} onSave={f=>{updComm(modal.platform,"items",[...(data.community[modal.platform]?.items||[]),{...f,id:Date.now(),views:+f.views||0,lastUpdated:today()}]);setModal(null);}}/></Modal>}
             </div>
           )}
@@ -2335,10 +2387,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <Td><span style={{color:"#06b6d4"}}>{fmt(m.recipients)}명</span></Td>
                         <Td><span style={{color:"#10b981",fontWeight:700}}>{m.openRate}</span></Td>
                         <Td><span style={{background:m.status==="완료"?"#10b981":"#f59e0b",color:"#fff",borderRadius:99,padding:"2px 9px",fontSize:12,fontWeight:700}}>{m.status}</span></Td>
-                        <Td><DelBtn onClick={()=>updN("inhouse","messages",data.inhouse.messages.filter(x=>x.id!==m.id))}/></Td>
+                        <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editMsg",item:m})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("inhouse","messages",data.inhouse.messages.filter(x=>x.id!==m.id))}/></div></Td>
                       </tr>
                     ))}</tbody>
                   </table>
+                  {modal?.type==="editMsg"&&<Modal title="메시지 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","platform:플랫폼|카카오 / 문자 / 이메일","sentDate:발송일","recipients:발송수","openRate:오픈율|예: 35%","status:상태|예정 / 진행중 / 완료"]} initial={modal.item} onSave={f=>{updN("inhouse","messages",data.inhouse.messages.map(x=>x.id===modal.item.id?{...x,...f,recipients:+f.recipients||0}:x));setModal(null);}}/></Modal>}
                   {modal==="addMsg"&&<Modal title="메시지 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","platform:플랫폼|카카오 / 문자 / 이메일","sentDate:발송일","recipients:발송수","openRate:오픈율|예: 35%","status:상태|예정 / 진행중 / 완료"]} onSave={f=>{updN("inhouse","messages",[...data.inhouse.messages,{...f,id:Date.now(),recipients:+f.recipients||0}]);setModal(null);}}/></Modal>}
                 </SectionWithCost>
               )}
@@ -2351,12 +2404,13 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
                           <span style={{color:"#94a3b8",fontSize:12}}>{r.lastUpdated}</span>
                           <button onClick={()=>{const d=Math.floor(Math.random()*5+1);updN("inhouse","reviews",data.inhouse.reviews.map(rv=>rv.id===r.id?{...rv,count:rv.count+d,lastUpdated:today()}:rv));}} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>↻</button>
-                          <DelBtn onClick={()=>updN("inhouse","reviews",data.inhouse.reviews.filter(x=>x.id!==r.id))}/>
+                          <button onClick={()=>setModal({type:"editReview",item:r})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("inhouse","reviews",data.inhouse.reviews.filter(x=>x.id!==r.id))}/>
                         </div>
                       </div>
                       <ProgressBar value={r.count} max={r.target} color={r.count>=r.target?"#10b981":"#6366f1"}/>
                     </div>
                   ))}
+                  {modal?.type==="editReview"&&<Modal title="리뷰 편집" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼","count:현재 리뷰수","target:목표 리뷰수"]} initial={modal.item} onSave={f=>{updN("inhouse","reviews",data.inhouse.reviews.map(x=>x.id===modal.item.id?{...x,...f,count:+f.count||0,target:+f.target||100}:x));setModal(null);}}/></Modal>}
                   {modal==="addReview"&&<Modal title="리뷰 플랫폼 추가" onClose={()=>setModal(null)}><SimpleForm fields={["platform:플랫폼","count:현재 리뷰수","target:목표 리뷰수"]} onSave={f=>{updN("inhouse","reviews",[...data.inhouse.reviews,{...f,id:Date.now(),count:+f.count||0,target:+f.target||100,lastUpdated:today()}]);setModal(null);}}/></Modal>}
                 </SectionWithCost>
               )}
@@ -2372,7 +2426,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         </div>
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
                           <label style={{background:"#10b981",color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>📷 추가<input type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>handleImgUpload(p.id,e.target.files)}/></label>
-                          <DelBtn onClick={()=>updN("inhouse","photos",data.inhouse.photos.filter(x=>x.id!==p.id))}/>
+                          <button onClick={()=>setModal({type:"editPhoto",item:p})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("inhouse","photos",data.inhouse.photos.filter(x=>x.id!==p.id))}/>
                         </div>
                       </div>
                       {(p.images||[]).length>0&&(
@@ -2386,6 +2440,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       )}
                     </div>
                   ))}
+                  {modal?.type==="editPhoto"&&<Modal title="전후사진 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:세트 제목","category:시술 카테고리"]} initial={modal.item} onSave={f=>{updN("inhouse","photos",data.inhouse.photos.map(x=>x.id===modal.item.id?{...x,...f}:x));setModal(null);}}/></Modal>}
                   {modal==="addPhoto"&&<Modal title="전후사진 세트 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:세트 제목","category:시술 카테고리"]} onSave={f=>{updN("inhouse","photos",[...data.inhouse.photos,{...f,id:Date.now(),lastUpdated:today(),images:[]}]);setModal(null);}}/></Modal>}
                   {modal?.type==="photoViewer"&&<PhotoViewer photo={modal.photo} startIdx={modal.startIdx||0} onClose={()=>setModal(null)} onDelete={(photoId,imgId)=>{updN("inhouse","photos",data.inhouse.photos.map(p=>p.id===photoId?{...p,images:p.images.filter(i=>i.id!==imgId)}:p));setModal(null);}}/>}
                 </SectionWithCost>
@@ -2401,10 +2456,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <Td>{v.duration}</Td>
                         <Td><span style={{color:"#475569",fontSize:12}}>{v.lastUpdated}</span></Td>
                         <Td><input value={v.url||""} onChange={e=>updN("inhouse","videos",data.inhouse.videos.map(vi=>vi.id===v.id?{...vi,url:e.target.value}:vi))} placeholder="링크" style={{background:"#0f172a",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#94a3b8",fontSize:12,width:160}}/></Td>
-                        <Td><DelBtn onClick={()=>updN("inhouse","videos",data.inhouse.videos.filter(x=>x.id!==v.id))}/></Td>
+                        <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editVid",item:v})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("inhouse","videos",data.inhouse.videos.filter(x=>x.id!==v.id))}/></div></Td>
                       </tr>
                     ))}</tbody>
                   </table>
+                  {modal?.type==="editVid"&&<Modal title="영상 편집" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","location:상영 위치","duration:러닝타임","url:링크"]} initial={modal.item} onSave={f=>{updN("inhouse","videos",data.inhouse.videos.map(x=>x.id===modal.item.id?{...x,...f}:x));setModal(null);}}/></Modal>}
                   {modal==="addVid"&&<Modal title="영상 추가" onClose={()=>setModal(null)}><SimpleForm fields={["title:제목","location:상영 위치","duration:러닝타임","url:링크"]} onSave={f=>{updN("inhouse","videos",[...data.inhouse.videos,{...f,id:Date.now(),lastUpdated:today()}]);setModal(null);}}/></Modal>}
                 </SectionWithCost>
               )}
@@ -2445,11 +2501,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <Td><span style={{color:"#94a3b8",fontSize:12}}>{e.endDate}</span></Td>
                         <Td><span style={{color:"#f59e0b",fontWeight:700}}>{fmtW(e.cost)}</span></Td>
                         <Td><span style={{background:e.status==="집행중"?"#10b981":"#475569",color:"#fff",borderRadius:99,padding:"2px 9px",fontSize:12,fontWeight:700}}>{e.status}</span></Td>
-                        <Td><DelBtn onClick={()=>updN("offline","elevator",data.offline.elevator.filter(x=>x.id!==e.id))}/></Td>
+                        <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editElev",item:e})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("offline","elevator",data.offline.elevator.filter(x=>x.id!==e.id))}/></div></Td>
                       </tr>
                     ))}</tbody>
                   </table>
-                  {modal==="addElev"&&<Modal title="엘리베이터 추가" onClose={()=>setModal(null)}><SimpleForm fields={["complex:단지명","units:세대수","startDate:시작일","endDate:종료일","cost:월비용(원)","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","elevator",[...data.offline.elevator,{...f,id:Date.now(),units:+f.units||0,cost:+f.cost||0}]);setModal(null);}}/></Modal>}
+                  {modal?.type==="editElev"&&<Modal title="엘리베이터 편집" onClose={()=>setModal(null)}><OfflineForm fields={["complex:단지명","units:세대수","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} initial={modal.item} onSave={f=>{updN("offline","elevator",data.offline.elevator.map(x=>x.id===modal.item.id?{...x,...f,units:+f.units||0,cost:+f.cost||0,totalCost:+f.totalCost||0}:x));setModal(null);}}/></Modal>}
+                  {modal==="addElev"&&<Modal title="엘리베이터 추가" onClose={()=>setModal(null)}><OfflineForm fields={["complex:단지명","units:세대수","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","elevator",[...data.offline.elevator,{...f,id:Date.now(),units:+f.units||0,cost:+f.cost||0,totalCost:+f.totalCost||0}]);setModal(null);}}/></Modal>}
                 </div>
               )}
               {offlineTab==="subway"&&(
@@ -2466,11 +2523,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <Td><span style={{color:"#94a3b8",fontSize:12}}>{s.endDate}</span></Td>
                         <Td><span style={{color:"#f59e0b",fontWeight:700}}>{fmtW(s.cost)}</span></Td>
                         <Td><span style={{background:s.status==="집행중"?"#10b981":"#475569",color:"#fff",borderRadius:99,padding:"2px 9px",fontSize:12,fontWeight:700}}>{s.status}</span></Td>
-                        <Td><DelBtn onClick={()=>updN("offline","subway",data.offline.subway.filter(x=>x.id!==s.id))}/></Td>
+                        <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editSub",item:s})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("offline","subway",data.offline.subway.filter(x=>x.id!==s.id))}/></div></Td>
                       </tr>
                     ))}</tbody>
                   </table>
-                  {modal==="addSub"&&<Modal title="역사 광고 추가" onClose={()=>setModal(null)}><SimpleForm fields={["station:역명","location:위치","startDate:시작일","endDate:종료일","cost:비용(원)","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","subway",[...data.offline.subway,{...f,id:Date.now(),cost:+f.cost||0}]);setModal(null);}}/></Modal>}
+                  {modal?.type==="editSub"&&<Modal title="역사 광고 편집" onClose={()=>setModal(null)}><OfflineForm fields={["station:역명","location:위치","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} initial={modal.item} onSave={f=>{updN("offline","subway",data.offline.subway.map(x=>x.id===modal.item.id?{...x,...f,cost:+f.cost||0,totalCost:+f.totalCost||0}:x));setModal(null);}}/></Modal>}
+                  {modal==="addSub"&&<Modal title="역사 광고 추가" onClose={()=>setModal(null)}><OfflineForm fields={["station:역명","location:위치","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","subway",[...data.offline.subway,{...f,id:Date.now(),cost:+f.cost||0,totalCost:+f.totalCost||0}]);setModal(null);}}/></Modal>}
                 </div>
               )}
               {offlineTab==="other"&&(
@@ -2488,11 +2546,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <Td><span style={{color:"#94a3b8",fontSize:12}}>{o.endDate}</span></Td>
                         <Td><span style={{color:"#f59e0b",fontWeight:700}}>{fmtW(o.cost)}</span></Td>
                         <Td><span style={{background:o.status==="집행중"?"#10b981":"#475569",color:"#fff",borderRadius:99,padding:"2px 9px",fontSize:12,fontWeight:700}}>{o.status}</span></Td>
-                        <Td><DelBtn onClick={()=>updN("offline","other",data.offline.other.filter(x=>x.id!==o.id))}/></Td>
+                        <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editOth",item:o})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>updN("offline","other",data.offline.other.filter(x=>x.id!==o.id))}/></div></Td>
                       </tr>
                     ))}</tbody>
                   </table>
-                  {modal==="addOth"&&<Modal title="기타 추가" onClose={()=>setModal(null)}><SimpleForm fields={["type:유형|버스정류장 / 현수막 등","location:위치","startDate:시작일","endDate:종료일","cost:비용(원)","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","other",[...data.offline.other,{...f,id:Date.now(),cost:+f.cost||0}]);setModal(null);}}/></Modal>}
+                  {modal?.type==="editOth"&&<Modal title="기타 편집" onClose={()=>setModal(null)}><OfflineForm fields={["type:유형|버스정류장 / 현수막 등","location:위치","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} initial={modal.item} onSave={f=>{updN("offline","other",data.offline.other.map(x=>x.id===modal.item.id?{...x,...f,cost:+f.cost||0,totalCost:+f.totalCost||0}:x));setModal(null);}}/></Modal>}
+                  {modal==="addOth"&&<Modal title="기타 추가" onClose={()=>setModal(null)}><OfflineForm fields={["type:유형|버스정류장 / 현수막 등","location:위치","startDate:시작일","endDate:종료일","status:상태|집행중 / 예정 / 종료"]} onSave={f=>{updN("offline","other",[...data.offline.other,{...f,id:Date.now(),cost:+f.cost||0,totalCost:+f.totalCost||0}]);setModal(null);}}/></Modal>}
                 </div>
               )}
             </div>
