@@ -70,7 +70,19 @@ export async function POST(req) {
       }
 
       results.tabOrder = tabOrder;
-      results._tabDebug = { method1: tabOrder.length, htmlLen: html.length };
+      results._tabDebug = {
+        htmlLen: html.length,
+        mainStart,
+        mainHtmlLen: mainHtml.length,
+        foundModules: (() => {
+          const all = [];
+          const re2 = /data-module-name="(\w+)"/g;
+          let m2; while ((m2 = re2.exec(mainHtml)) !== null) all.push({ name: m2[1], pos: m2.index });
+          return all.slice(0, 20);
+        })(),
+        mainHtmlFirst300: mainHtml.slice(0, 300),
+        tabOrderResult: tabOrder
+      };
 
       // ---- 플레이스 ----
       const placeTitles = [];

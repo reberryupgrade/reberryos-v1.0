@@ -1029,7 +1029,8 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
       knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
       powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[],
       googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],
-      tabOrder:r.tabOrder&&r.tabOrder.length>0?r.tabOrder:(k.detectedTabOrder||[])
+      tabOrder:r.tabOrder&&r.tabOrder.length>0?r.tabOrder:(k.detectedTabOrder||[]),
+      _tabDebug:r._tabDebug||null
     };
     return updates;
   };
@@ -1918,6 +1919,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{modal.item.detectedTabOrder.map((tp,idx)=>(
                           <span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":idx===2?"#6366f1":idx===3?"#f59e0b":idx===4?"#ec4899":"#334155",color:"#fff",borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:700}}>{idx+1}위 {tp}</span>
                         ))}</div>
+                      </div>
+                    )}
+                    {modal.item._rankDetail?._tabDebug&&(
+                      <div style={{marginBottom:16,background:"#1a1a2e",borderRadius:10,padding:"12px 16px",border:"1px solid #334155"}}>
+                        <div style={{color:"#f59e0b",fontWeight:700,fontSize:12,marginBottom:8}}>🔧 탭 감지 디버그</div>
+                        <pre style={{color:"#94a3b8",fontSize:10,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",maxHeight:200,overflowY:"auto"}}>{JSON.stringify(modal.item._rankDetail._tabDebug,null,2)}</pre>
                       </div>
                     )}
                     {[
