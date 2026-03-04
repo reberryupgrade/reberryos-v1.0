@@ -14,58 +14,57 @@ export async function POST(req) {
       const res = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}`, { headers });
       const html = await res.text();
 
-      // ---- 탭 순서 감지 (실제 검색결과 섹션만) ----
+      // ---- 탭 순서 감지 (nx_cr_area_info 기반) ----
       const tabOrder = [];
       const seen = new Set();
-      const moduleMap = { "powerlink":"파워링크","nx_brand_search":"브랜드검색","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","book":"도서","encyc":"지식백과","music":"음악","influencer":"인플루언서","populartopic":"인기글","shortform":"숏폼","homepage":"홈페이지","faq":"FAQ","related_query":"함께찾는" };
 
-      // 네비게이션 영역 건너뛰기: main_pack이 가장 확실한 컨텐츠 시작점
+      // main_pack 시작점
       let mainStart = html.indexOf('id="main_pack"');
       if (mainStart < 0) mainStart = html.indexOf('id="content"');
-      if (mainStart < 0) mainStart = html.indexOf('class="content_wrap"');
-      // 어떤 마커도 없으면 상위 30% 건너뛰기 (네비게이션 영역)
       if (mainStart < 0) mainStart = Math.floor(html.length * 0.3);
       const mainHtml = html.slice(mainStart);
 
-      // 방법1: data-module-name (가장 정확, 네이버 공식 마크업)
-      const modRe = /data-module-name="(\w+)"/g;
-      let mm; while ((mm = modRe.exec(mainHtml)) !== null) {
-        const name = moduleMap[mm[1]] || mm[1];
-        if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
+      // 핵심: nx_cr_area_info 파싱 (네이버 내부 섹션 순서 데이터)
+      const crAreaMatch = /nx_cr_area_info\s*=\s*\[([\s\S]*?)\]/.exec(mainHtml);
+      if (crAreaMatch) {
+        const itemRe = /"n"\s*:\s*"([^"]+)"\s*,\s*"r"\s*:\s*(\d+)/g;
+        const items = [];
+        let mm; while ((mm = itemRe.exec(crAreaMatch[1])) !== null) {
+          items.push({ code: mm[1], rank: parseInt(mm[2]) });
+        }
+        items.sort((a, b) => a.rank - b.rank);
+
+        // 코드 prefix → 섹션명 매핑
+        const prefixMap = {
+          "pwl":"파워링크","nmb":"플레이스","nmp":"플레이스","plc":"플레이스","loc":"플레이스",
+          "blg":"블로그","ugB":"인기글","ugb":"인기글",
+          "caf":"카페","kin":"지식인","nws":"뉴스",
+          "img":"이미지","vod":"동영상","vid":"동영상",
+          "shp":"쇼핑","sho":"쇼핑",
+          "web":"홈페이지","hom":"홈페이지",
+          "kwX":"함께찾는","kwL":"연관검색어","rel":"연관검색어",
+          "brn":"브랜드검색","brd":"브랜드검색",
+          "inf":"인플루언서","sft":"숏폼","faq":"FAQ",
+          "boo":"도서","enc":"지식백과","mus":"음악",
+        };
+
+        for (const item of items) {
+          const prefix = item.code.split("_")[0];
+          const name = prefixMap[prefix] || null;
+          if (name && !seen.has(name)) {
+            tabOrder.push(name);
+            seen.add(name);
+          }
+        }
       }
 
-      // 방법2: class="sc_new sp_*" (각 섹션 컨테이너)
-      {
-        const scRe = /class="[^"]*sc_new\s+sp_(\w+)/g;
-        while ((mm = scRe.exec(mainHtml)) !== null) {
-          const key = mm[1].replace(/nrank|ntotal/g,"").toLowerCase();
-          const map2 = {plink:"파워링크",nbrand:"브랜드검색",nplace:"플레이스",local:"플레이스",blog:"블로그",cafe:"카페",kin:"지식인",news:"뉴스",image:"이미지",video:"동영상",vod:"동영상",shop:"쇼핑",web:"웹사이트",nkin:"지식인",nshop:"쇼핑",nnews:"뉴스",nblog:"블로그",ncafe:"카페",nvod:"동영상",nimage:"이미지"};
-          const name = map2[key];
+      // 백업: data-module-name (일부 환경에서 존재할 수 있음)
+      if (tabOrder.length < 2) {
+        const moduleMap = { "powerlink":"파워링크","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","populartopic":"인기글" };
+        const modRe = /data-module-name="(\w+)"/g;
+        let mm; while ((mm = modRe.exec(mainHtml)) !== null) {
+          const name = moduleMap[mm[1]];
           if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
-        }
-      }
-
-      // 방법3: 섹션 제목 패턴 (<h2>, <strong> 등의 헤딩 내부 텍스트만)
-      if (tabOrder.length < 3) {
-        const headingRe = /<(?:h[23]|strong)[^>]*class="[^"]*(?:tit|title|heading|headline)[^"]*"[^>]*>([\s\S]*?)<\/(?:h[23]|strong)>/gi;
-        const sectionNames = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식iN":"지식인","지식인":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑","인기글":"인기글","함께 많이 찾는":"함께찾는","연관검색어":"연관검색어","홈페이지":"홈페이지"};
-        while ((mm = headingRe.exec(mainHtml)) !== null) {
-          const text = mm[1].replace(/<[^>]*>/g,"").trim();
-          for (const [k,v] of Object.entries(sectionNames)) {
-            if (text.includes(k) && !seen.has(v)) { tabOrder.push(v); seen.add(v); break; }
-          }
-        }
-      }
-
-      // 방법4: api_subject_bx 또는 section 컨테이너 위치 기반
-      if (tabOrder.length < 3) {
-        const secRe = /class="[^"]*(?:api_subject_bx|section_head|sc_new\s)[^"]*"[\s\S]*?(?:>([가-힣A-Za-z]+)<\/(?:h[23]|strong|span|a))/g;
-        const sectionNames = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑","인기글":"인기글","홈페이지":"홈페이지"};
-        while ((mm = secRe.exec(mainHtml)) !== null) {
-          const text = (mm[1]||"").trim();
-          for (const [k,v] of Object.entries(sectionNames)) {
-            if (text.includes(k) && !seen.has(v)) { tabOrder.push(v); seen.add(v); break; }
-          }
         }
       }
 
@@ -73,14 +72,8 @@ export async function POST(req) {
       results._tabDebug = {
         htmlLen: html.length,
         mainStart,
-        mainHtmlLen: mainHtml.length,
-        foundModules: (() => {
-          const all = [];
-          const re2 = /data-module-name="(\w+)"/g;
-          let m2; while ((m2 = re2.exec(mainHtml)) !== null) all.push({ name: m2[1], pos: m2.index });
-          return all.slice(0, 20);
-        })(),
-        mainHtmlFirst300: mainHtml.slice(0, 300),
+        crAreaFound: !!crAreaMatch,
+        crAreaRaw: crAreaMatch ? crAreaMatch[1].slice(0, 500) : "not found",
         tabOrderResult: tabOrder
       };
 
