@@ -999,38 +999,113 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
   const[ytLoading,setYtLoading]=useState(null);
 
   const[rankLoading,setRankLoading]=useState(null);
+  const dataRef=useRef(data);
+  useEffect(()=>{dataRef.current=data;},[data]);
+  const fetchRankData=async(keyword,targets)=>{
+    const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword,targets})});
+    return await res.json();
+  };
+  const applyRankResult=(kwId,d)=>{
+    const r=d.results||{};
+    const updates={lastRankCheck:today()};
+    if(r.blog?.rank)updates.myBlogRank=r.blog.rank+"위";
+    else if(r.blog?.titles?.length)updates.myBlogRank="미노출";
+    if(r.place?.rank)updates.myPlaceRank=r.place.rank+"위";
+    else if(r.place?.titles?.length)updates.myPlaceRank="미노출";
+    if(r.cafe?.rank)updates.rankCafe=r.cafe.rank+"위";
+    else if(r.cafe?.titles?.length)updates.rankCafe="미노출";
+    if(r.knowledge?.rank)updates.rankKnowledge=r.knowledge.rank+"위";
+    if(r.news?.rank)updates.rankNews=r.news.rank+"위";
+    if(r.powerlink?.rank)updates.rankPowerlink=r.powerlink.rank+"위";
+    if(r.naverMap?.rank)updates.rankNaverMap=r.naverMap.rank+"위";
+    else if(r.naverMap?.titles?.length)updates.rankNaverMap="미노출";
+    if(r.googleMap?.rank)updates.rankGoogle=r.googleMap.rank+"위";
+    else if(r.googleMap?.titles?.length)updates.rankGoogle="미노출";
+    if(r.kakaoMap?.rank)updates.rankKakao=r.kakaoMap.rank+"위";
+    else if(r.kakaoMap?.titles?.length)updates.rankKakao="미노출";
+    if(r.tabOrder)updates.detectedTabOrder=r.tabOrder;
+    updates._rankDetail={
+      blog:r.blog?.titles||[],place:r.place?.titles||[],cafe:r.cafe?.titles||[],
+      knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
+      powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[],
+      googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],
+      tabOrder:r.tabOrder||[]
+    };
+    return updates;
+  };
   const checkNaverRank=async(kwItem)=>{
-    const targets=data.rankTargets||{};
+    const targets=dataRef.current.rankTargets||{};
     if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요 (블로그명, 업체명 등)");return;}
     setRankLoading(kwItem.id);
     try{
-      const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword:kwItem.keyword,targets})});
-      const d=await res.json();
+      const d=await fetchRankData(kwItem.keyword,targets);
       if(d.error){alert("오류: "+d.error);setRankLoading(null);return;}
-      const r=d.results||{};
-      const updated={...kwItem,lastRankCheck:today()};
-      if(r.blog?.rank)updated.myBlogRank=r.blog.rank+"위";
-      if(r.place?.rank)updated.myPlaceRank=r.place.rank+"위";
-      if(r.cafe?.rank)updated.rankCafe=r.cafe.rank+"위";
-      if(r.knowledge?.rank)updated.rankKnowledge=r.knowledge.rank+"위";
-      if(r.news?.rank)updated.rankNews=r.news.rank+"위";
-      if(r.powerlink?.rank)updated.rankPowerlink=r.powerlink.rank+"위";
-      if(r.naverMap?.rank)updated.rankNaverMap=r.naverMap.rank+"위";
-      // Store raw results for detail view
-      updated._rankDetail={
-        blog:r.blog?.titles||[],place:r.place?.titles||[],cafe:r.cafe?.titles||[],
-        knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
-        powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[]
-      };
-      upd("keywords",data.keywords.map(k=>k.id===kwItem.id?{...k,...updated}:k));
+      const updates=applyRankResult(kwItem.id,d);
+      upd("keywords",dataRef.current.keywords.map(k=>k.id===kwItem.id?{...k,...updates}:k));
     }catch(e){alert("네트워크 오류: "+e.message);}
     setRankLoading(null);
   };
   const checkAllRanks=async()=>{
-    for(const kw of data.keywords){
-      await checkNaverRank(kw);
-      await new Promise(r=>setTimeout(r,1500)); // rate limit
+    const targets=dataRef.current.rankTargets||{};
+    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요");return;}
+    setRankLoading("all");
+    for(const kw of dataRef.current.keywords){
+      try{
+        const d=await fetchRankData(kw.keyword,targets);
+        if(!d.error){
+          const updates=applyRankResult(kw.id,d);
+          const cur=dataRef.current.keywords.map(k=>k.id===kw.id?{...k,...updates}:k);
+          upd("keywords",cur);
+        }
+      }catch(e){console.error(e);}
+      await new Promise(r=>setTimeout(r,1500));
     }
+    setRankLoading(null);
+  };
+  const checkMapRank=async(mapItem)=>{
+    const targets=dataRef.current.rankTargets||{};
+    if(!targets.placeName){alert("먼저 '내 콘텐츠 식별자'에서 업체명을 설정해주세요");return;}
+    setRankLoading("map_"+mapItem.id);
+    try{
+      const d=await fetchRankData(mapItem.keyword,targets);
+      if(!d.error){
+        const r=d.results||{};
+        const updates={lastRankCheck:today()};
+        if(r.naverMap?.rank)updates.naverPlace=r.naverMap.rank+"위";
+        else if(r.naverMap?.titles?.length)updates.naverPlace="미노출";
+        if(r.googleMap?.rank)updates.google=r.googleMap.rank+"위";
+        else if(r.googleMap?.titles?.length)updates.google="미노출";
+        if(r.kakaoMap?.rank)updates.kakao=r.kakaoMap.rank+"위";
+        else if(r.kakaoMap?.titles?.length)updates.kakao="미노출";
+        updates._mapDetail={naverMap:r.naverMap?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[]};
+        const rn=parseInt(updates.naverPlace)||99;const rg=parseInt(updates.google)||99;const rk=parseInt(updates.kakao)||99;
+        const best=Math.min(rn,rg,rk);updates.status=best<=3?"good":best<=5?"warn":"danger";
+        upd("maps",dataRef.current.maps.map(m=>m.id===mapItem.id?{...m,...updates}:m));
+      }
+    }catch(e){console.error(e);}
+    setRankLoading(null);
+  };
+  const checkAllMapRanks=async()=>{
+    const targets=dataRef.current.rankTargets||{};
+    if(!targets.placeName){alert("먼저 업체명을 설정해주세요");return;}
+    setRankLoading("allMaps");
+    for(const m of dataRef.current.maps){
+      await checkMapRank(m);
+      await new Promise(r=>setTimeout(r,1500));
+    }
+    setRankLoading(null);
+  };
+  const fetchReviews=async(keyword)=>{
+    const targets=dataRef.current.rankTargets||{};
+    if(!targets.placeName){alert("업체명을 먼저 설정해주세요");return;}
+    setRankLoading("reviews");
+    try{
+      const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword,targets,action:"reviews"})});
+      const d=await res.json();
+      if(d.results?.reviews){setModal({type:"reviews",data:d.results.reviews,keyword});}
+      else{alert("리뷰를 가져올 수 없습니다.");}
+    }catch(e){alert("오류: "+e.message);}
+    setRankLoading(null);
   };
   const[ytChTab,setYtChTab]=useState("all");
   const ytRefresh=async(item,key="youtube")=>{
@@ -1727,7 +1802,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Th c="🗺️ N맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="🌐 G맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="🟡 K맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
-                    <Th c="탭순서"/><Th c="최근조회"/><Th c=""/>
+                    <Th c="검색탭순서"/><Th c="설정순서"/><Th c="최근조회"/><Th c=""/>
                   </tr></thead>
                   <tbody>{data.keywords.map((k,ri)=>(
                     <tr key={k.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
@@ -1742,6 +1817,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankNaverMap} color="#22d3ee"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankGoogle} color="#f97316"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankKakao} color="#fbbf24"/></Td>
+                      <Td>{k.detectedTabOrder?<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{k.detectedTabOrder.slice(0,4).map((tp,idx)=><span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":"#1e293b",color:idx<2?"#fff":"#94a3b8",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx<2?700:400}}>{idx+1}.{tp}</span>)}{k.detectedTabOrder.length>4&&<span style={{color:"#334155",fontSize:10}}>…</span>}</div>:<span style={{color:"#334155",fontSize:11}}>미조회</span>}</Td>
                       <Td><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{(k.tabOrder||TAB_TYPES).slice(0,3).map((tp,idx)=><span key={idx} style={{background:idx===0?"#6366f1":"#1e293b",color:idx===0?"#fff":"#64748b",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx===0?700:400}}>{idx+1}.{tp}</span>)}<span style={{color:"#334155",fontSize:10}}>…</span></div></Td>
                       <Td><span style={{color:"#475569",fontSize:11}}>{k.lastRankCheck||"-"}</span></Td>
                       <Td><div style={{display:"flex",gap:4}}><button onClick={()=>checkNaverRank(k)} disabled={rankLoading===k.id} style={{background:rankLoading===k.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading===k.id?"⏳":"🔍"}</button><button onClick={()=>setModal({type:"editKw",item:k})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><button onClick={()=>k._rankDetail?setModal({type:"rankDetail",item:k}):null} disabled={!k._rankDetail} style={{background:k._rankDetail?"#334155":"#1e293b",border:"none",color:k._rankDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:k._rankDetail?"pointer":"default",fontSize:11}}>상세</button><DelBtn onClick={()=>del("keywords",k.id)}/></div></Td>
@@ -1819,11 +1895,21 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
               {modal?.type==="rankDetail"&&(
                 <Modal title={`🔍 ${modal.item.keyword} - 검색결과 상세`} onClose={()=>setModal(null)} wide>
                   <div style={{maxHeight:"70vh",overflowY:"auto"}}>
+                    {modal.item.detectedTabOrder&&modal.item.detectedTabOrder.length>0&&(
+                      <div style={{marginBottom:16,background:"#0f172a",borderRadius:10,padding:"12px 16px"}}>
+                        <div style={{color:"#10b981",fontWeight:700,fontSize:13,marginBottom:8}}>📋 검색 탭 노출 순서</div>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{modal.item.detectedTabOrder.map((tp,idx)=>(
+                          <span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":idx===2?"#6366f1":"#334155",color:"#fff",borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:700}}>{idx+1}위 {tp}</span>
+                        ))}</div>
+                      </div>
+                    )}
                     {[
                       {key:"blog",label:"📝 블로그",color:"#6366f1"},
                       {key:"place",label:"📍 플레이스",color:"#06b6d4"},
                       {key:"cafe",label:"☕ 카페",color:"#ec4899"},
                       {key:"naverMap",label:"🗺️ 네이버맵",color:"#22d3ee"},
+                      {key:"googleMap",label:"🌐 구글맵",color:"#f97316"},
+                      {key:"kakaoMap",label:"🟡 카카오맵",color:"#fbbf24"},
                       {key:"knowledge",label:"❓ 지식인",color:"#f59e0b"},
                       {key:"news",label:"📰 뉴스",color:"#94a3b8"},
                       {key:"powerlink",label:"💎 파워링크",color:"#10b981"},
@@ -1865,20 +1951,75 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* MAPS */}
           {tab==="maps"&&(
-            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<Btn onClick={()=>setModal("map")}>+ 추가</Btn>}>
+            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6}}><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr><Th c="키워드"/><Th c="네이버"/><Th c="구글"/><Th c="카카오"/><Th c="상태"/><Th c=""/></tr></thead>
+                <thead><tr><Th c="키워드"/><Th c="🗺️ N맵"/><Th c="🌐 G맵"/><Th c="🟡 K맵"/><Th c="상태"/><Th c="조회일"/><Th c=""/></tr></thead>
                 <tbody>{data.maps.map((m,ri)=>(
                   <tr key={m.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
                     <Td><span style={{color:"#6366f1",fontWeight:700}}>{m.keyword}</span></Td>
-                    <Td><span style={{color:rankColor(m.naverPlace),fontWeight:700}}>{m.naverPlace}</span></Td>
-                    <Td><span style={{color:rankColor(m.google),fontWeight:700}}>{m.google}</span></Td>
-                    <Td><span style={{color:rankColor(m.kakao),fontWeight:700}}>{m.kakao}</span></Td>
+                    <Td><RankBadge value={m.naverPlace} color="#22d3ee"/></Td>
+                    <Td><RankBadge value={m.google} color="#f97316"/></Td>
+                    <Td><RankBadge value={m.kakao} color="#fbbf24"/></Td>
                     <Td><Badge status={m.status}/></Td>
-                    <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editMap",item:m})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("maps",m.id)}/></div></Td>
+                    <Td><span style={{color:"#475569",fontSize:11}}>{m.lastRankCheck||"-"}</span></Td>
+                    <Td><div style={{display:"flex",gap:4}}>
+                      <button onClick={()=>checkMapRank(m)} disabled={rankLoading==="map_"+m.id} style={{background:rankLoading==="map_"+m.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading==="map_"+m.id?"⏳":"🔍"}</button>
+                      <button onClick={()=>fetchReviews(m.keyword)} disabled={rankLoading==="reviews"} style={{background:"#334155",border:"none",color:"#f59e0b",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>💬리뷰</button>
+                      <button onClick={()=>m._mapDetail?setModal({type:"mapDetail",item:m}):null} disabled={!m._mapDetail} style={{background:m._mapDetail?"#334155":"#1e293b",border:"none",color:m._mapDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>상세</button>
+                      <button onClick={()=>setModal({type:"editMap",item:m})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button>
+                      <DelBtn onClick={()=>del("maps",m.id)}/>
+                    </div></Td>
                   </tr>
                 ))}</tbody>
               </table>
+              {modal?.type==="mapDetail"&&(
+                <Modal title={`🗺️ ${modal.item.keyword} - 지도 검색결과`} onClose={()=>setModal(null)}>
+                  <div style={{maxHeight:"60vh",overflowY:"auto"}}>
+                    {[{key:"naverMap",label:"🗺️ 네이버맵",color:"#22d3ee"},{key:"googleMap",label:"🌐 구글맵",color:"#f97316"},{key:"kakaoMap",label:"🟡 카카오맵",color:"#fbbf24"}].map(sec=>{
+                      const items=modal.item._mapDetail?.[sec.key]||[];
+                      if(!items.length)return null;
+                      const tgt=(data.rankTargets?.placeName||"").toLowerCase();
+                      return(
+                        <div key={sec.key} style={{marginBottom:16}}>
+                          <div style={{color:sec.color,fontWeight:700,fontSize:13,marginBottom:8}}>{sec.label} ({items.length}건)</div>
+                          {items.map((t,i)=>{
+                            const isMe=tgt&&t.toLowerCase().includes(tgt);
+                            return(
+                              <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:isMe?"#1e293b":"#0f172a",borderRadius:8,marginBottom:4,border:isMe?"1px solid "+sec.color:"1px solid transparent"}}>
+                                <span style={{color:i<3?sec.color:"#475569",fontWeight:800,fontSize:13,minWidth:24}}>{i+1}</span>
+                                <span style={{color:isMe?"#e2e8f0":"#94a3b8",fontSize:13,fontWeight:isMe?700:400}}>{t}</span>
+                                {isMe&&<span style={{background:sec.color,color:"#fff",borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>내 업체</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Modal>
+              )}
+              {modal?.type==="reviews"&&(
+                <Modal title={`💬 ${modal.data.placeName||modal.keyword} - 리뷰 분석`} onClose={()=>setModal(null)}>
+                  <div style={{maxHeight:"65vh",overflowY:"auto"}}>
+                    {modal.data.negCount>0&&(
+                      <div style={{background:"#2d0f0f",borderRadius:10,padding:"12px 16px",marginBottom:14,border:"1px solid #ef444444"}}>
+                        <div style={{color:"#ef4444",fontWeight:800,fontSize:14}}>⚠️ 부정적 리뷰 {modal.data.negCount}건 감지</div>
+                        <div style={{color:"#f87171",fontSize:12,marginTop:4}}>총 {modal.data.reviews?.length||0}건 중 부정 {modal.data.negCount}건 ({Math.round(modal.data.negCount/(modal.data.reviews?.length||1)*100)}%)</div>
+                      </div>
+                    )}
+                    {(modal.data.reviews||[]).map((rv,i)=>(
+                      <div key={i} style={{background:rv.sentiment==="negative"?"#1a0f0f":rv.sentiment==="positive"?"#0f1a15":"#0f172a",borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${rv.sentiment==="negative"?"#ef4444":rv.sentiment==="positive"?"#10b981":"#475569"}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                          <span style={{fontSize:12,fontWeight:700,color:rv.sentiment==="negative"?"#ef4444":rv.sentiment==="positive"?"#10b981":"#94a3b8"}}>{rv.sentiment==="negative"?"👎 부정":rv.sentiment==="positive"?"👍 긍정":"😐 중립"}</span>
+                          {rv.negWords&&rv.negWords.length>0&&<span style={{fontSize:11,color:"#ef4444"}}>{rv.negWords.join(", ")}</span>}
+                        </div>
+                        <div style={{color:"#e2e8f0",fontSize:13,lineHeight:"1.5"}}>{rv.text}</div>
+                      </div>
+                    ))}
+                    {(!modal.data.reviews||!modal.data.reviews.length)&&<div style={{color:"#475569",textAlign:"center",padding:20}}>리뷰를 찾을 수 없습니다</div>}
+                  </div>
+                </Modal>
+              )}
               {(modal==="map"||modal?.type==="editMap")&&(
                 <Modal title={modal==="map"?"지도 추가":"편집"} onClose={()=>setModal(null)}>
                   <MapForm initial={modal?.item} onSave={f=>{if(modal==="map")upd("maps",[...data.maps,{...f,id:Date.now(),status:"warn"}]);else upd("maps",data.maps.map(m=>m.id===modal.item.id?{...m,...f}:m));setModal(null);}}/>
