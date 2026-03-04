@@ -9,6 +9,45 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+function extractYtChannelId(url){
+  if(!url)return null;
+  const m1=url.match(/youtube\.com\/channel\/([\w-]+)/);if(m1)return{type:"id",val:m1[1]};
+  const m2=url.match(/youtube\.com\/@([\w.-]+)/);if(m2)return{type:"handle",val:m2[1]};
+  const m3=url.match(/youtube\.com\/c\/([\w.-]+)/);if(m3)return{type:"custom",val:m3[1]};
+  if(/^UC[\w-]{22}$/.test(url))return{type:"id",val:url};
+  return null;
+}
+async function resolveYtChannelId(input){
+  const parsed=extractYtChannelId(input);
+  if(!parsed){
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(input)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
+    const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+  }
+  if(parsed.type==="id")return parsed.val;
+  const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(parsed.val)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
+  const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+}
+async function fetchYtChannelVideos(channelId,maxResults=10){
+  try{
+    const cr=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet,statistics&id=${channelId}&key=${YT_API_KEY}`);
+    const cd=await cr.json();if(!cd.items||!cd.items.length)return null;
+    const ch=cd.items[0];const uploadsId=ch.contentDetails.relatedPlaylists.uploads;
+    const pr=await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=${maxResults}&key=${YT_API_KEY}`);
+    const pd=await pr.json();if(!pd.items)return{channel:ch,videos:[]};
+    const videoIds=pd.items.map(i=>i.snippet.resourceId.videoId).join(",");
+    const vr=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${YT_API_KEY}`);
+    const vd=await vr.json();
+    const videos=(vd.items||[]).map(v=>({
+      videoId:v.id,title:v.snippet.title,url:`https://youtube.com/watch?v=${v.id}`,
+      views:+(v.statistics.viewCount||0),likes:+(v.statistics.likeCount||0),
+      commentCount:+(v.statistics.commentCount||0),
+      thumbnail:v.snippet.thumbnails?.medium?.url||"",
+      publishedAt:v.snippet.publishedAt?.split("T")[0]||""
+    }));
+    return{channel:{id:channelId,name:ch.snippet.title,thumbnail:ch.snippet.thumbnails?.default?.url||"",subscribers:+(ch.statistics.subscriberCount||0),totalViews:+(ch.statistics.viewCount||0),videoCount:+(ch.statistics.videoCount||0)},videos};
+  }catch(e){console.error("YT channel videos error:",e);return null;}
+}
+
 const TAB_TYPES = ["블로그","지식인","카페","플레이스","뉴스","파워링크"];
 
 const YT_API_KEY="AIzaSyBaQzlNcJldt5zuPR_1CtD-1zsBvcKITl0";
@@ -36,6 +75,45 @@ async function fetchYtChannel(channelId){
     return{name:sn.title,subscribers:+(s.subscriberCount||0),totalViews:+(s.viewCount||0),videoCount:+(s.videoCount||0)};
   }catch(e){console.error("YT channel fetch error:",e);return null;}
 }
+function extractYtChannelId(url){
+  if(!url)return null;
+  const m1=url.match(/youtube\.com\/channel\/([\w-]+)/);if(m1)return{type:"id",val:m1[1]};
+  const m2=url.match(/youtube\.com\/@([\w.-]+)/);if(m2)return{type:"handle",val:m2[1]};
+  const m3=url.match(/youtube\.com\/c\/([\w.-]+)/);if(m3)return{type:"custom",val:m3[1]};
+  if(/^UC[\w-]{22}$/.test(url))return{type:"id",val:url};
+  return null;
+}
+async function resolveYtChannelId(input){
+  const parsed=extractYtChannelId(input);
+  if(!parsed){
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(input)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
+    const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+  }
+  if(parsed.type==="id")return parsed.val;
+  const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(parsed.val)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
+  const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+}
+async function fetchYtChannelVideos(channelId,maxResults=10){
+  try{
+    const cr=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet,statistics&id=${channelId}&key=${YT_API_KEY}`);
+    const cd=await cr.json();if(!cd.items||!cd.items.length)return null;
+    const ch=cd.items[0];const uploadsId=ch.contentDetails.relatedPlaylists.uploads;
+    const pr=await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=${maxResults}&key=${YT_API_KEY}`);
+    const pd=await pr.json();if(!pd.items)return{channel:ch,videos:[]};
+    const videoIds=pd.items.map(i=>i.snippet.resourceId.videoId).join(",");
+    const vr=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${YT_API_KEY}`);
+    const vd=await vr.json();
+    const videos=(vd.items||[]).map(v=>({
+      videoId:v.id,title:v.snippet.title,url:`https://youtube.com/watch?v=${v.id}`,
+      views:+(v.statistics.viewCount||0),likes:+(v.statistics.likeCount||0),
+      commentCount:+(v.statistics.commentCount||0),
+      thumbnail:v.snippet.thumbnails?.medium?.url||"",
+      publishedAt:v.snippet.publishedAt?.split("T")[0]||""
+    }));
+    return{channel:{id:channelId,name:ch.snippet.title,thumbnail:ch.snippet.thumbnails?.default?.url||"",subscribers:+(ch.statistics.subscriberCount||0),totalViews:+(ch.statistics.viewCount||0),videoCount:+(ch.statistics.videoCount||0)},videos};
+  }catch(e){console.error("YT channel videos error:",e);return null;}
+}
+
 
 const COMM_PLATFORMS = ["당근마켓","에브리타임","맘카페","지역카페"];
 const TABS = [
@@ -82,6 +160,7 @@ const DEFAULT_BRANCH_DATA = {
   experienceCost:0, cafesCost:0,
   cafes:[{id:1,name:"강남맘카페",url:"",members:"12만",penetrated:true,posts:[{id:101,title:"다녀왔어요",url:"",views:1240,comments:[]}]},{id:2,name:"서초생활정보",url:"",members:"8만",penetrated:false,posts:[]}],
   youtube:[{id:1,title:"보톡스 솔직후기",url:"",views:12400,likes:320,lastUpdated:"2024-02-20",comments:[]}],
+  ytChannels:[],
   youtubeCost:0,
   shortform:[{id:1,platform:"인스타그램",title:"시술 전후 비교",url:"",views:23000,likes:890,lastUpdated:"2024-02-20",comments:[]}],
   shortformCost:0,
@@ -956,6 +1035,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
 
   const[ytLoading,setYtLoading]=useState(null);
+  const[ytChTab,setYtChTab]=useState("all");
   const ytRefresh=async(item,key="youtube")=>{
     const vid=extractYtId(item.url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return;}
     setYtLoading(item.id);
@@ -979,6 +1059,34 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     }catch(e){alert("API 오류: "+e.message);}
     setYtLoading(null);return true;
   };
+  const ytAddChannel=async(input)=>{
+    setYtLoading("addCh");
+    try{
+      const cid=await resolveYtChannelId(input);
+      if(!cid){alert("채널을 찾을 수 없습니다.");setYtLoading(null);return;}
+      if((data.ytChannels||[]).some(c=>c.id===cid)){alert("이미 등록된 채널입니다.");setYtLoading(null);return;}
+      const result=await fetchYtChannelVideos(cid);
+      if(!result){alert("채널 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
+      const ch={...result.channel,id:cid,addedAt:today()};
+      upd("ytChannels",[...(data.ytChannels||[]),ch]);
+      const newVids=result.videos.filter(v=>!data.youtube.some(y=>y.url===v.url)).map(v=>({...v,id:Date.now()+Math.random(),channelId:cid,channelTitle:result.channel.name,lastUpdated:today(),comments:[]}));
+      if(newVids.length)upd("youtube",[...data.youtube,...newVids]);
+      alert(`${result.channel.name} 등록 완료! ${newVids.length}개 영상 추가됨`);
+    }catch(e){alert("오류: "+e.message);}
+    setYtLoading(null);
+  };
+  const ytRefreshChannel=async(ch)=>{
+    setYtLoading("ch_"+ch.id);
+    try{
+      const result=await fetchYtChannelVideos(ch.id);
+      if(!result){setYtLoading(null);return;}
+      upd("ytChannels",(data.ytChannels||[]).map(c=>c.id===ch.id?{...c,...result.channel}:c));
+      const newVids=result.videos.filter(v=>!data.youtube.some(y=>y.url===v.url)).map(v=>({...v,id:Date.now()+Math.random(),channelId:ch.id,channelTitle:result.channel.name,lastUpdated:today(),comments:[]}));
+      if(newVids.length)upd("youtube",[...data.youtube,...newVids]);
+    }catch(e){console.error(e);}
+    setYtLoading(null);
+  };
+
   const simRefresh=(key,item)=>{upd(key,data[key].map(r=>r.id===item.id?{...r,views:Math.max(0,(r.views||0)+Math.floor(Math.random()*200+20)),lastUpdated:today()}:r));};
   const simRefreshComm=(p,item)=>{updComm(p,"items",data.community[p].items.map(r=>r.id===item.id?{...r,views:Math.max(0,(r.views||0)+Math.floor(Math.random()*100+10)),lastUpdated:today()}:r));};
 
@@ -1797,21 +1905,40 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* YOUTUBE */}
           {tab==="youtube"&&(
-            <SectionWithCost title="유튜브" cost={data.youtubeCost} onCostChange={v=>upd("youtubeCost",v)} color={CHANNEL_COLORS.youtube} right={<Btn onClick={()=>setModal({type:"addYt",_ytUrl:""})}>+ 추가</Btn>}>
-              {data.youtube.some(y=>y.channelTitle)&&(
+            <SectionWithCost title="유튜브" cost={data.youtubeCost} onCostChange={v=>upd("youtubeCost",v)} color={CHANNEL_COLORS.youtube} right={<div style={{display:"flex",gap:6}}><Btn onClick={()=>setModal({type:"addYtCh"})}>+ 채널</Btn><Btn onClick={()=>setModal({type:"addYt",_ytUrl:""})}>+ 영상</Btn></div>}>
+              {(data.ytChannels||[]).length>0&&(
                 <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-                  {[...new Set(data.youtube.filter(y=>y.channelTitle).map(y=>JSON.stringify({name:y.channelTitle,id:y.channelId})))].map(ch=>{const c2=JSON.parse(ch);return(
-                    <div key={c2.id} style={{background:"#1e293b",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:16}}>📺</span>
-                      <span style={{fontWeight:700,fontSize:13}}>{c2.name}</span>
-                      <button onClick={async()=>{const info=await fetchYtChannel(c2.id);if(info)alert(`${info.name}\n구독자: ${info.subscribers.toLocaleString()}명\n총 조회수: ${info.totalViews.toLocaleString()}\n영상 수: ${info.videoCount}`);}} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>채널 정보</button>
+                  {(data.ytChannels||[]).map(ch=>(
+                    <div key={ch.id} style={{background:ytChTab===ch.id?"#1e293b":"#0f172a",borderRadius:10,padding:"12px 16px",flex:"1 1 220px",border:ytChTab===ch.id?"1px solid #6366f1":"1px solid #1e293b",cursor:"pointer"}} onClick={()=>setYtChTab(ytChTab===ch.id?"all":ch.id)}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {ch.thumbnail&&<img src={ch.thumbnail} alt="" style={{width:28,height:28,borderRadius:99}}/>}
+                          <span style={{fontWeight:800,fontSize:14}}>{ch.name}</span>
+                        </div>
+                        <div style={{display:"flex",gap:4}}>
+                          <button onClick={e=>{e.stopPropagation();ytRefreshChannel(ch);}} disabled={ytLoading==="ch_"+ch.id} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>{ytLoading==="ch_"+ch.id?"⏳":"↻"}</button>
+                          <button onClick={e=>{e.stopPropagation();if(confirm(ch.name+" 채널을 삭제하시겠습니까?"))upd("ytChannels",(data.ytChannels||[]).filter(x=>x.id!==ch.id));}} style={{background:"#334155",border:"none",color:"#ef4444",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✕</button>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                        <div><div style={{color:"#94a3b8",fontSize:11}}>구독자</div><div style={{color:"#f43f5e",fontWeight:800,fontSize:15}}>{(ch.subscribers||0).toLocaleString()}명</div></div>
+                        <div><div style={{color:"#94a3b8",fontSize:11}}>총 조회수</div><div style={{color:"#06b6d4",fontWeight:800,fontSize:15}}>{(ch.totalViews||0).toLocaleString()}</div></div>
+                        <div><div style={{color:"#94a3b8",fontSize:11}}>영상</div><div style={{color:"#a78bfa",fontWeight:800,fontSize:15}}>{ch.videoCount||0}개</div></div>
+                      </div>
                     </div>
-                  );})}
+                  ))}
+                </div>
+              )}
+              {(data.ytChannels||[]).length>0&&(
+                <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                  <button onClick={()=>setYtChTab("all")} style={{background:ytChTab==="all"?"#6366f1":"#1e293b",color:ytChTab==="all"?"#fff":"#94a3b8",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:ytChTab==="all"?700:400}}>전체 ({data.youtube.length})</button>
+                  {(data.ytChannels||[]).map(ch=><button key={ch.id} onClick={()=>setYtChTab(ch.id)} style={{background:ytChTab===ch.id?"#6366f1":"#1e293b",color:ytChTab===ch.id?"#fff":"#94a3b8",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:ytChTab===ch.id?700:400}}>{ch.name} ({data.youtube.filter(y=>y.channelId===ch.id).length})</button>)}
+                  <button onClick={()=>setYtChTab("noChannel")} style={{background:ytChTab==="noChannel"?"#6366f1":"#1e293b",color:ytChTab==="noChannel"?"#fff":"#94a3b8",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:ytChTab==="noChannel"?700:400}}>직접추가 ({data.youtube.filter(y=>!y.channelId).length})</button>
                 </div>
               )}
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr><Th c="제목"/><Th c="조회수"/><Th c="댓글"/><Th c="좋아요"/><Th c="갱신"/><Th c="URL"/><Th c=""/></tr></thead>
-                <tbody>{data.youtube.map((y,ri)=>(
+                <tbody>{data.youtube.filter(y=>ytChTab==="all"?true:ytChTab==="noChannel"?!y.channelId:y.channelId===ytChTab).map((y,ri)=>(
                   <tr key={y.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
                     <Td><LinkCell url={y.url}><span style={{fontWeight:700}}>{y.title}</span></LinkCell></Td>
                     <Td><span style={{color:"#06b6d4"}}>{fmt(y.views)}</span></Td>
@@ -1829,6 +1956,11 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                 <Btn onClick={async()=>{const ok=await ytAddByUrl(modal?._ytUrl||"","youtube");if(ok)setModal(null);}} disabled={ytLoading==="adding"} style={{width:"100%",marginTop:4}}>{ytLoading==="adding"?"⏳ 데이터 가져오는 중...":"URL로 자동 추가"}</Btn>
                 <div style={{textAlign:"center",color:"#475569",fontSize:12,margin:"10px 0"}}>또는 직접 입력</div>
                 <SimpleForm fields={["title:제목","url:URL","views:조회수","likes:좋아요수"]} onSave={f=>{upd("youtube",[...data.youtube,{...f,id:Date.now(),views:+f.views||0,likes:+f.likes||0,lastUpdated:today(),comments:[]}]);setModal(null);}}/></div></Modal>}
+              {modal?.type==="addYtCh"&&<Modal title="📺 채널 등록" onClose={()=>setModal(null)}><div>
+                <FF label="채널 URL 또는 이름"><Inp value={modal?._chUrl||""} onChange={v=>setModal({...modal,_chUrl:v})} placeholder="https://youtube.com/@채널명 또는 채널 검색어"/></FF>
+                <div style={{color:"#64748b",fontSize:11,marginBottom:8}}>예: https://youtube.com/@channelname, 채널명 직접 검색도 가능</div>
+                <Btn onClick={async()=>{await ytAddChannel(modal?._chUrl||"");setModal(null);}} disabled={ytLoading==="addCh"} style={{width:"100%"}}>{ytLoading==="addCh"?"⏳ 채널 검색 중...":"채널 등록 + 영상 자동 수집"}</Btn>
+              </div></Modal>}
               {modal?.type==="comments"&&<CommentsPanel comments={modal.comments} title={modal.title} onClose={()=>setModal(null)}/>}
             </SectionWithCost>
           )}
