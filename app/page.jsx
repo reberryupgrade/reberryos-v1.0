@@ -115,6 +115,7 @@ const DEFAULT_BRANCH_DATA = {
   portalConfig: {clinicName:"",reportMonth:"2025년 2월",managerName:"마케팅팀",logoText:"🏥",showBudget:false,showKeywords:true,showMaps:true,showYoutube:true,showShortform:true,showReviews:true,showCafes:true,memo:""},
   keywords:[{id:1,keyword:"강남 피부과",tabOrder:["플레이스","블로그","파워링크","카페","지식인","뉴스"],myBlogRank:"3위",myPlaceRank:"1위",rankCafe:"-",rankKnowledge:"-",rankNews:"-",rankPowerlink:"2위",rankNaverMap:"1위",rankGoogle:"3위",rankKakao:"2위",status:"good"}],
   keywordCosts:{블로그:0,지식인:0,카페:0,플레이스:0,뉴스:0,파워링크:0},
+  rankTargets:{blogName:"",placeName:"",cafeName:""},
   maps:[{id:1,keyword:"강남 피부과",naverPlace:"1위",google:"3위",kakao:"2위",status:"good"}],
   mapsCost:0,
   experience:[{id:1,title:"체험후기",url:"",platform:"네이버블로그",views:1240,comments:32,lastUpdated:"2024-02-20",status:"good"}],
@@ -996,6 +997,41 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
 
   const[ytLoading,setYtLoading]=useState(null);
+
+  const[rankLoading,setRankLoading]=useState(null);
+  const checkNaverRank=async(kwItem)=>{
+    const targets=data.rankTargets||{};
+    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요 (블로그명, 업체명 등)");return;}
+    setRankLoading(kwItem.id);
+    try{
+      const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword:kwItem.keyword,targets})});
+      const d=await res.json();
+      if(d.error){alert("오류: "+d.error);setRankLoading(null);return;}
+      const r=d.results||{};
+      const updated={...kwItem,lastRankCheck:today()};
+      if(r.blog?.rank)updated.myBlogRank=r.blog.rank+"위";
+      if(r.place?.rank)updated.myPlaceRank=r.place.rank+"위";
+      if(r.cafe?.rank)updated.rankCafe=r.cafe.rank+"위";
+      if(r.knowledge?.rank)updated.rankKnowledge=r.knowledge.rank+"위";
+      if(r.news?.rank)updated.rankNews=r.news.rank+"위";
+      if(r.powerlink?.rank)updated.rankPowerlink=r.powerlink.rank+"위";
+      if(r.naverMap?.rank)updated.rankNaverMap=r.naverMap.rank+"위";
+      // Store raw results for detail view
+      updated._rankDetail={
+        blog:r.blog?.titles||[],place:r.place?.titles||[],cafe:r.cafe?.titles||[],
+        knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
+        powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[]
+      };
+      upd("keywords",data.keywords.map(k=>k.id===kwItem.id?{...k,...updated}:k));
+    }catch(e){alert("네트워크 오류: "+e.message);}
+    setRankLoading(null);
+  };
+  const checkAllRanks=async()=>{
+    for(const kw of data.keywords){
+      await checkNaverRank(kw);
+      await new Promise(r=>setTimeout(r,1500)); // rate limit
+    }
+  };
   const[ytChTab,setYtChTab]=useState("all");
   const ytRefresh=async(item,key="youtube")=>{
     const vid=extractYtId(item.url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return;}
@@ -1639,10 +1675,24 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div style={{fontWeight:700,fontSize:15}}>네이버 키워드</div>
                 <div style={{display:"flex",gap:8}}>
+                  <Btn color="#10b981" onClick={()=>checkAllRanks()} disabled={!!rankLoading}>
+                    {rankLoading?"⏳ 조회중...":"🔍 전체 순위 조회"}
+                  </Btn>
                   <Btn color="#8b5cf6" onClick={()=>setModal("aiKw")}>🤖 AI 제안</Btn>
                   <Btn color="#f59e0b" onClick={()=>fileRef.current.click()}>📂 엑셀</Btn>
                   <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcel}/>
                   <Btn onClick={()=>setModal("kw")}>+ 추가</Btn>
+                </div>
+              </div>
+              <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",marginBottom:14,border:"1px solid #334155"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"#10b981"}}>🎯 내 콘텐츠 식별자</div>
+                  <span style={{color:"#475569",fontSize:11}}>순위 조회 시 이 이름으로 검색 결과에서 찾습니다</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                  <div><div style={{color:"#94a3b8",fontSize:11,marginBottom:4}}>블로그/병원명</div><input value={data.rankTargets?.blogName||""} onChange={e=>upd("rankTargets",{...data.rankTargets,blogName:e.target.value})} placeholder="예: 강남피부과" style={{width:"100%",background:"#1e293b",border:"1px solid #334155",borderRadius:8,padding:"8px 12px",color:"#e2e8f0",fontSize:13}}/></div>
+                  <div><div style={{color:"#94a3b8",fontSize:11,marginBottom:4}}>플레이스/업체명</div><input value={data.rankTargets?.placeName||""} onChange={e=>upd("rankTargets",{...data.rankTargets,placeName:e.target.value})} placeholder="예: 강남피부과의원" style={{width:"100%",background:"#1e293b",border:"1px solid #334155",borderRadius:8,padding:"8px 12px",color:"#e2e8f0",fontSize:13}}/></div>
+                  <div><div style={{color:"#94a3b8",fontSize:11,marginBottom:4}}>카페/닉네임</div><input value={data.rankTargets?.cafeName||""} onChange={e=>upd("rankTargets",{...data.rankTargets,cafeName:e.target.value})} placeholder="예: 강남피부과공식" style={{width:"100%",background:"#1e293b",border:"1px solid #334155",borderRadius:8,padding:"8px 12px",color:"#e2e8f0",fontSize:13}}/></div>
                 </div>
               </div>
               <div style={{background:"#1e293b",borderRadius:12,padding:"16px 18px",marginBottom:18}}>
@@ -1677,7 +1727,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Th c="🗺️ N맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="🌐 G맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
                     <Th c="🟡 K맵" style={{textAlign:"center",fontSize:11,padding:"8px 6px"}}/>
-                    <Th c="탭순서"/><Th c=""/>
+                    <Th c="탭순서"/><Th c="최근조회"/><Th c=""/>
                   </tr></thead>
                   <tbody>{data.keywords.map((k,ri)=>(
                     <tr key={k.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
@@ -1693,7 +1743,8 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankGoogle} color="#f97316"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankKakao} color="#fbbf24"/></Td>
                       <Td><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{(k.tabOrder||TAB_TYPES).slice(0,3).map((tp,idx)=><span key={idx} style={{background:idx===0?"#6366f1":"#1e293b",color:idx===0?"#fff":"#64748b",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx===0?700:400}}>{idx+1}.{tp}</span>)}<span style={{color:"#334155",fontSize:10}}>…</span></div></Td>
-                      <Td><div style={{display:"flex",gap:4}}><button onClick={()=>setModal({type:"editKw",item:k})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><DelBtn onClick={()=>del("keywords",k.id)}/></div></Td>
+                      <Td><span style={{color:"#475569",fontSize:11}}>{k.lastRankCheck||"-"}</span></Td>
+                      <Td><div style={{display:"flex",gap:4}}><button onClick={()=>checkNaverRank(k)} disabled={rankLoading===k.id} style={{background:rankLoading===k.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading===k.id?"⏳":"🔍"}</button><button onClick={()=>setModal({type:"editKw",item:k})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><button onClick={()=>k._rankDetail?setModal({type:"rankDetail",item:k}):null} disabled={!k._rankDetail} style={{background:k._rankDetail?"#334155":"#1e293b",border:"none",color:k._rankDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:k._rankDetail?"pointer":"default",fontSize:11}}>상세</button><DelBtn onClick={()=>del("keywords",k.id)}/></div></Td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -1763,6 +1814,42 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                 <Modal title={`📈 ${modal.item.keyword}`} onClose={()=>setModal(null)} wide>
                   <div style={{textAlign:"center",marginBottom:12}}><span style={{color:"#06b6d4",fontWeight:800,fontSize:22}}>{fmt(modal.item.monthlySearch)}</span><span style={{color:"#94a3b8",fontSize:14}}> 회/월</span></div>
                   {modal.item.trend?<ResponsiveContainer width="100%" height={200}><LineChart data={modal.item.trend} margin={{top:10,right:20,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/><XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}}/><YAxis tick={{fontSize:11,fill:"#94a3b8"}} width={50}/><Tooltip formatter={v=>[fmt(v)+"회",""]} contentStyle={{background:"#1e293b",border:"none"}}/><Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{fill:"#6366f1",r:3}}/></LineChart></ResponsiveContainer>:<div style={{color:"#475569",textAlign:"center",padding:20}}>추이 없음</div>}
+                </Modal>
+              )}
+              {modal?.type==="rankDetail"&&(
+                <Modal title={`🔍 ${modal.item.keyword} - 검색결과 상세`} onClose={()=>setModal(null)} wide>
+                  <div style={{maxHeight:"70vh",overflowY:"auto"}}>
+                    {[
+                      {key:"blog",label:"📝 블로그",color:"#6366f1"},
+                      {key:"place",label:"📍 플레이스",color:"#06b6d4"},
+                      {key:"cafe",label:"☕ 카페",color:"#ec4899"},
+                      {key:"naverMap",label:"🗺️ 네이버맵",color:"#22d3ee"},
+                      {key:"knowledge",label:"❓ 지식인",color:"#f59e0b"},
+                      {key:"news",label:"📰 뉴스",color:"#94a3b8"},
+                      {key:"powerlink",label:"💎 파워링크",color:"#10b981"},
+                    ].map(sec=>{
+                      const items=modal.item._rankDetail?.[sec.key]||[];
+                      if(!items.length)return null;
+                      const tgt=data.rankTargets||{};
+                      const searchTerm=(sec.key==="blog"||sec.key==="knowledge"||sec.key==="news"||sec.key==="powerlink")?tgt.blogName:(sec.key==="cafe")?tgt.cafeName:tgt.placeName;
+                      return(
+                        <div key={sec.key} style={{marginBottom:16}}>
+                          <div style={{color:sec.color,fontWeight:700,fontSize:13,marginBottom:8}}>{sec.label} ({items.length}건)</div>
+                          {items.map((t,i)=>{
+                            const isMe=searchTerm&&t.toLowerCase().includes(searchTerm.toLowerCase());
+                            return(
+                              <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:isMe?"#1e293b":"#0f172a",borderRadius:8,marginBottom:4,border:isMe?"1px solid "+sec.color:"1px solid transparent"}}>
+                                <span style={{color:i<3?sec.color:"#475569",fontWeight:800,fontSize:13,minWidth:24}}>{i+1}</span>
+                                <span style={{color:isMe?"#e2e8f0":"#94a3b8",fontSize:13,fontWeight:isMe?700:400}}>{t}</span>
+                                {isMe&&<span style={{background:sec.color,color:"#fff",borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>내 콘텐츠</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                    <div style={{color:"#475569",fontSize:11,marginTop:10}}>조회일시: {modal.item.lastRankCheck||"-"}</div>
+                  </div>
                 </Modal>
               )}
               {(modal==="kw"||modal?.type==="editKw")&&(
