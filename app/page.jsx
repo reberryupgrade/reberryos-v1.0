@@ -1093,15 +1093,15 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     }
     setRankLoading(null);
   };
-  const fetchReviews=async(keyword)=>{
+  const fetchReviews=async(keyword,platform="naver")=>{
     const targets=dataRef.current.rankTargets||{};
     if(!targets.placeName){alert("업체명을 먼저 설정해주세요");return;}
-    setRankLoading("reviews");
+    setRankLoading("reviews_"+platform);
     try{
-      const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword,targets,action:"reviews"})});
+      const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword,targets,action:"reviews",platform})});
       const d=await res.json();
-      if(d.results?.reviews){setModal({type:"reviews",data:d.results.reviews,keyword});}
-      else{alert("리뷰를 가져올 수 없습니다.");}
+      if(d.results?.reviews){setModal({type:"reviews",data:d.results.reviews,keyword,platform});}
+      else{alert((platform==="naver"?"플레이스":platform==="google"?"구글맵":"카카오맵")+" 리뷰를 가져올 수 없습니다.");}
     }catch(e){alert("오류: "+e.message);}
     setRankLoading(null);
   };
@@ -1816,7 +1816,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankGoogle} color="#f97316"/></Td>
                       <Td style={{textAlign:"center"}}><RankBadge value={k.rankKakao} color="#fbbf24"/></Td>
                       <Td>{k.detectedTabOrder&&k.detectedTabOrder.length>0?<div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{k.detectedTabOrder.slice(0,5).map((tp,idx)=><span key={idx} style={{background:idx===0?"#10b981":idx===1?"#06b6d4":idx===2?"#6366f1":idx===3?"#f59e0b":"#ec4899",color:"#fff",borderRadius:4,padding:"2px 6px",fontSize:10,fontWeight:700}}>{idx+1}.{tp}</span>)}{k.detectedTabOrder.length>5&&<span style={{color:"#64748b",fontSize:10}}>+{k.detectedTabOrder.length-5}</span>}</div>:<span style={{color:"#475569",fontSize:11}}>미조회</span>}</Td>
-                      <Td><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{(k.tabOrder||TAB_TYPES).slice(0,3).map((tp,idx)=><span key={idx} style={{background:idx===0?"#6366f1":"#1e293b",color:idx===0?"#fff":"#64748b",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx===0?700:400}}>{idx+1}.{tp}</span>)}<span style={{color:"#334155",fontSize:10}}>…</span></div></Td>
+                      <Td><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{(k.tabOrder||TAB_TYPES).slice(0,6).map((tp,idx)=><span key={idx} style={{background:idx===0?"#6366f1":idx<3?"#334155":"#1e293b",color:idx===0?"#fff":idx<3?"#e2e8f0":"#64748b",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:idx<3?700:400}}>{idx+1}.{tp}</span>)}</div></Td>
                       <Td><span style={{color:"#475569",fontSize:11}}>{k.lastRankCheck||"-"}</span></Td>
                       <Td><div style={{display:"flex",gap:4}}><button onClick={()=>checkNaverRank(k)} disabled={rankLoading===k.id} style={{background:rankLoading===k.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading===k.id?"⏳":"🔍"}</button><button onClick={()=>setModal({type:"editKw",item:k})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button><button onClick={()=>k._rankDetail?setModal({type:"rankDetail",item:k}):null} disabled={!k._rankDetail} style={{background:k._rankDetail?"#334155":"#1e293b",border:"none",color:k._rankDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:k._rankDetail?"pointer":"default",fontSize:11}}>상세</button><DelBtn onClick={()=>del("keywords",k.id)}/></div></Td>
                     </tr>
@@ -1971,7 +1971,9 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     <Td><span style={{color:"#475569",fontSize:11}}>{m.lastRankCheck||"-"}</span></Td>
                     <Td><div style={{display:"flex",gap:4}}>
                       <button onClick={()=>checkMapRank(m)} disabled={rankLoading==="map_"+m.id} style={{background:rankLoading==="map_"+m.id?"#1e293b":"#10b981",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>{rankLoading==="map_"+m.id?"⏳":"🔍"}</button>
-                      <button onClick={()=>fetchReviews(m.keyword)} disabled={rankLoading==="reviews"} style={{background:"#334155",border:"none",color:"#f59e0b",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>💬리뷰</button>
+                      <button onClick={()=>fetchReviews(m.keyword,"naver")} disabled={rankLoading==="reviews_naver"} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:10}}>{rankLoading==="reviews_naver"?"⏳":"📍리뷰"}</button>
+                      <button onClick={()=>fetchReviews(m.keyword,"google")} disabled={rankLoading==="reviews_google"} style={{background:"#334155",border:"none",color:"#f97316",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:10}}>{rankLoading==="reviews_google"?"⏳":"🌐리뷰"}</button>
+                      <button onClick={()=>fetchReviews(m.keyword,"kakao")} disabled={rankLoading==="reviews_kakao"} style={{background:"#334155",border:"none",color:"#fbbf24",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:10}}>{rankLoading==="reviews_kakao"?"⏳":"🟡리뷰"}</button>
                       <button onClick={()=>m._mapDetail?setModal({type:"mapDetail",item:m}):null} disabled={!m._mapDetail} style={{background:m._mapDetail?"#334155":"#1e293b",border:"none",color:m._mapDetail?"#06b6d4":"#334155",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>상세</button>
                       <button onClick={()=>setModal({type:"editMap",item:m})} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>편집</button>
                       <DelBtn onClick={()=>del("maps",m.id)}/>
@@ -2006,7 +2008,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                 </Modal>
               )}
               {modal?.type==="reviews"&&(
-                <Modal title={`💬 ${modal.data.placeName||modal.keyword} - 리뷰 분석`} onClose={()=>setModal(null)}>
+                <Modal title={`💬 ${modal.data.placeName||modal.keyword} - ${modal.platform==="google"?"구글맵":modal.platform==="kakao"?"카카오맵":"플레이스"} 리뷰 분석`} onClose={()=>setModal(null)}>
                   <div style={{maxHeight:"65vh",overflowY:"auto"}}>
                     {modal.data.negCount>0&&(
                       <div style={{background:"#2d0f0f",borderRadius:10,padding:"12px 16px",marginBottom:14,border:"1px solid #ef444444"}}>

@@ -1,6 +1,6 @@
 export async function POST(req) {
   try {
-    const { keyword, targets, action } = await req.json();
+    const { keyword, targets, action, platform } = await req.json();
     if (!keyword) return Response.json({ error: "keyword required" }, { status: 400 });
 
     const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -10,77 +10,93 @@ export async function POST(req) {
     const tl = (s) => (s || "").toLowerCase();
 
     // ============ 1. 네이버 통합검색 ============
-    let intHtml = "";
     try {
-      const res = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}&sm=top_hty&fbm=0`, { headers });
-      intHtml = await res.text();
+      const res = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}`, { headers });
+      const html = await res.text();
 
-      // ---- 탭 순서: data-module-name 기반 (가장 신뢰도 높음) ----
+      // ---- 탭 순서 감지 (3가지 방법 시도) ----
       const tabOrder = [];
-      // 네이버 통합검색은 각 섹션을 data-module-name 속성으로 구분
-      const moduleRe = /data-module-name="(\w+)"/g;
-      let mm;
-      const moduleMap = {
-        "powerlink": "파워링크", "nx_brand_search": "브랜드검색",
-        "place": "플레이스", "local": "플레이스",
-        "blog": "블로그", "cafe": "카페", "kin": "지식인",
-        "news": "뉴스", "image": "이미지", "video": "동영상", "vod": "동영상",
-        "shop": "쇼핑", "book": "도서", "music": "뮤직", "encyc": "지식백과",
-        "movie": "영화", "webkr": "웹사이트",
-      };
       const seen = new Set();
-      while ((mm = moduleRe.exec(intHtml)) !== null) {
+      const moduleMap = { "powerlink":"파워링크","nx_brand_search":"브랜드검색","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","book":"도서","encyc":"지식백과","music":"음악" };
+
+      // 방법1: data-module-name (최신 네이버)
+      const modRe = /data-module-name="(\w+)"/g;
+      let mm; while ((mm = modRe.exec(html)) !== null) {
         const name = moduleMap[mm[1]];
         if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
       }
 
-      // Fallback: class 기반 감지
+      // 방법2: class="sc_new sp_*" (이전 버전)
       if (tabOrder.length < 3) {
-        const fallbackSections = [
-          { name: "파워링크", re: /class="[^"]*(?:ad_area|type_powerlink|sp_plink|_plink)/i },
-          { name: "플레이스", re: /class="[^"]*(?:place_|local_|type_local|LocalInfo)/i },
-          { name: "블로그", re: /class="[^"]*(?:blog_|type_blog)/i },
-          { name: "카페", re: /class="[^"]*(?:_cafe|type_cafe)/i },
-          { name: "지식인", re: /class="[^"]*(?:_kin|type_kin)/i },
-          { name: "뉴스", re: /class="[^"]*(?:_news|type_news|news_)/i },
-          { name: "동영상", re: /class="[^"]*(?:_video|type_video|_vod)/i },
-          { name: "쇼핑", re: /class="[^"]*(?:_shop|type_shop)/i },
-          { name: "이미지", re: /class="[^"]*(?:_image|type_image)/i },
-        ];
-        const positions = [];
-        for (const sec of fallbackSections) {
-          if (seen.has(sec.name)) continue;
-          const m = intHtml.search(sec.re);
-          if (m >= 0) positions.push({ name: sec.name, pos: m });
+        const scRe = /class="[^"]*sc_new\s+sp_(\w+)/g;
+        while ((mm = scRe.exec(html)) !== null) {
+          const key = mm[1].replace(/nrank|ntotal/g,"").toLowerCase();
+          const map2 = {plink:"파워링크",nbrand:"브랜드검색",nplace:"플레이스",local:"플레이스",blog:"블로그",cafe:"카페",kin:"지식인",news:"뉴스",image:"이미지",video:"동영상",vod:"동영상",shop:"쇼핑",web:"웹사이트",nkin:"지식인",nshop:"쇼핑",nnews:"뉴스",nblog:"블로그",ncafe:"카페",nvod:"동영상",nimage:"이미지"};
+          const name = map2[key];
+          if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
         }
-        positions.sort((a, b) => a.pos - b.pos);
-        positions.forEach(p => { if (!seen.has(p.name)) { tabOrder.push(p.name); seen.add(p.name); } });
       }
+
+      // 방법3: section id/class 위치 기반 (최후 수단)
+      if (tabOrder.length < 3) {
+        const secs = [
+          {name:"파워링크",re:[/id="power_link_body/i,/class="[^"]*ad_section/i,/class="[^"]*_plink/i]},
+          {name:"플레이스",re:[/class="[^"]*sc_new[^"]*place/i,/class="[^"]*place_section/i,/class="[^"]*LocalInfo/i]},
+          {name:"블로그",re:[/class="[^"]*sc_new[^"]*blog/i,/class="[^"]*blog_section/i]},
+          {name:"카페",re:[/class="[^"]*sc_new[^"]*cafe/i]},
+          {name:"지식인",re:[/class="[^"]*sc_new[^"]*kin/i]},
+          {name:"뉴스",re:[/class="[^"]*sc_new[^"]*news/i,/class="[^"]*news_section/i]},
+          {name:"동영상",re:[/class="[^"]*sc_new[^"]*video/i,/class="[^"]*sc_new[^"]*vod/i]},
+          {name:"쇼핑",re:[/class="[^"]*sc_new[^"]*shop/i]},
+          {name:"이미지",re:[/class="[^"]*sc_new[^"]*image/i]},
+        ];
+        const pos = [];
+        for (const s of secs) {
+          if (seen.has(s.name)) continue;
+          let mp = Infinity;
+          for (const r of s.re) { const idx = html.search(r); if (idx >= 0 && idx < mp) mp = idx; }
+          if (mp < Infinity) pos.push({name:s.name,pos:mp});
+        }
+        pos.sort((a,b)=>a.pos-b.pos);
+        pos.forEach(p => { if (!seen.has(p.name)) { tabOrder.push(p.name); seen.add(p.name); } });
+      }
+
+      // 방법4: 한글 섹션 제목으로 감지
+      if (tabOrder.length < 3) {
+        const titleMap = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식iN":"지식인","지식인":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑"};
+        const titleRe = /class="[^"]*(?:tit_area|api_title|fds-comps-header-headline)[^"]*"[^>]*>.*?([가-힣]+)/gs;
+        while ((mm = titleRe.exec(html)) !== null) {
+          const name = titleMap[mm[1]];
+          if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
+        }
+      }
+
       results.tabOrder = tabOrder;
 
       // ---- 플레이스 ----
       const placeTitles = [];
-      const pPats = [
-        /class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs,
-        /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs,
-        /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs,
-      ];
-      for (const p of pPats) { let m; while ((m = p.exec(intHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g, "").trim(); if (t && t.length > 1 && !placeTitles.includes(t)) placeTitles.push(t); } }
-      results.place = { titles: placeTitles.slice(0, 10) };
-      if (targets?.placeName) { const i = placeTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.place.rank = i >= 0 ? i + 1 : null; }
+      const pPats = [/class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs];
+      for (const p of pPats) { let m; while ((m = p.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && !placeTitles.includes(t)) placeTitles.push(t); } }
+      results.place = { titles: placeTitles.slice(0,10) };
+      if (targets?.placeName) { const i = placeTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.place.rank = i>=0 ? i+1 : null; }
 
       // ---- 뉴스 ----
       const newsTitles = [];
       const nPat = /class="[^"]*news_tit[^"]*"[^>]*(?:title="([^"]+)")?[^>]*>(.*?)<\/a>/gs;
-      let nm; while ((nm = nPat.exec(intHtml)) !== null) { const t = (nm[1] || nm[2]).replace(/<[^>]*>/g, "").trim(); if (t && t.length > 3 && !newsTitles.includes(t)) newsTitles.push(t); }
-      results.news = { titles: newsTitles.slice(0, 10) };
+      let nm; while ((nm = nPat.exec(html)) !== null) { const t = (nm[1]||nm[2]).replace(/<[^>]*>/g,"").trim(); if (t && t.length>3 && !newsTitles.includes(t)) newsTitles.push(t); }
+      results.news = { titles: newsTitles.slice(0,10) };
 
       // ---- 파워링크 ----
       const adTitles = [];
       const aPats = [/class="[^"]*lnk_head[^"]*"[^>]*>(.*?)<\/a>/gs, /class="[^"]*tit_wrap[^"]*"[^>]*>(.*?)<\//gs];
-      for (const p of aPats) { let m; while ((m = p.exec(intHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g, "").trim(); if (t && t.length > 2 && !adTitles.includes(t)) adTitles.push(t); } }
-      results.powerlink = { titles: adTitles.slice(0, 10) };
-      if (targets?.placeName) { const i = adTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.powerlink.rank = i >= 0 ? i + 1 : null; }
+      for (const p of aPats) { let m; while ((m = p.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>2 && !adTitles.includes(t)) adTitles.push(t); } }
+      results.powerlink = { titles: adTitles.slice(0,10) };
+      if (targets?.placeName) { const i = adTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.powerlink.rank = i>=0 ? i+1 : null; }
+
+      // ---- 월 검색량 추정 (통합검색 페이지 내 광고 정보에서) ----
+      const searchVolRe = /(?:월간검색수|검색량)[^\d]*?([\d,]+)/;
+      const svMatch = html.match(searchVolRe);
+      if (svMatch) results.monthlySearch = +(svMatch[1].replace(/,/g,""));
     } catch (e) { results._intError = e.message; }
 
     // ============ 2. 블로그 검색 ============
@@ -89,9 +105,9 @@ export async function POST(req) {
       const html = await res.text();
       const titles = [];
       const pat = /class="[^"]*title_link[^"]*"[^>]*>(.*?)<\/a>/gs;
-      let m; while ((m = pat.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g, "").trim(); if (t && t.length > 2 && titles.length < 30) titles.push(t); }
-      results.blog = { titles: titles.slice(0, 30) };
-      if (targets?.blogName) { const i = titles.findIndex(t => tl(t).includes(tl(targets.blogName))); results.blog.rank = i >= 0 ? i + 1 : null; }
+      let m; while ((m = pat.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>2 && titles.length<30) titles.push(t); }
+      results.blog = { titles: titles.slice(0,30) };
+      if (targets?.blogName) { const i = titles.findIndex(t => tl(t).includes(tl(targets.blogName))); results.blog.rank = i>=0 ? i+1 : null; }
     } catch (e) { results.blog = { error: e.message }; }
 
     // ============ 3. 카페 검색 ============
@@ -100,145 +116,192 @@ export async function POST(req) {
       const html = await res.text();
       const titles = [];
       const pat = /class="[^"]*title_link[^"]*"[^>]*>(.*?)<\/a>/gs;
-      let m; while ((m = pat.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g, "").trim(); if (t && t.length > 2 && titles.length < 30) titles.push(t); }
-      results.cafe = { titles: titles.slice(0, 30) };
-      if (targets?.cafeName) { const i = titles.findIndex(t => tl(t).includes(tl(targets.cafeName))); results.cafe.rank = i >= 0 ? i + 1 : null; }
+      let m; while ((m = pat.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>2 && titles.length<30) titles.push(t); }
+      results.cafe = { titles: titles.slice(0,30) };
+      if (targets?.cafeName) { const i = titles.findIndex(t => tl(t).includes(tl(targets.cafeName))); results.cafe.rank = i>=0 ? i+1 : null; }
     } catch (e) { results.cafe = { error: e.message }; }
 
-    // ============ 4. 네이버 지도 (지도 노출탭 전용) ============
+    // ============ 4. 네이버 지도 ============
     try {
-      const res = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all`, { headers: { ...headers, "Accept": "application/json" } });
+      const res = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all`, { headers: {...headers,"Accept":"application/json"} });
       const data = await res.json();
-      const places = (data?.result?.place?.list || []).map(p => ({
-        name: p.name, id: p.id, category: p.category || "", address: p.roadAddress || p.address || "",
-        reviewCount: +(p.reviewCount || p.visitorReviewCount || 0), rating: p.rating || ""
-      }));
-      results.naverMap = { places: places.slice(0, 10), titles: places.slice(0, 10).map(p => p.name) };
-      if (targets?.placeName) { const i = places.findIndex(p => tl(p.name).includes(tl(targets.placeName))); results.naverMap.rank = i >= 0 ? i + 1 : null; if (i >= 0) results.naverMap.myPlace = places[i]; }
+      const places = (data?.result?.place?.list || []).map(p => ({name:p.name,id:p.id,category:p.category||"",address:p.roadAddress||p.address||"",reviewCount:+(p.reviewCount||p.visitorReviewCount||0),rating:p.rating||""}));
+      results.naverMap = { places: places.slice(0,10), titles: places.slice(0,10).map(p=>p.name) };
+      if (targets?.placeName) { const i = places.findIndex(p => tl(p.name).includes(tl(targets.placeName))); results.naverMap.rank = i>=0 ? i+1 : null; if (i>=0) results.naverMap.myPlace = places[i]; }
     } catch (e) { results.naverMap = { error: e.message, titles: [] }; }
 
     // ============ 5. 구글 지도 ============
     try {
-      // Google 로컬 검색 (가장 안정적)
       const gRes = await fetch(`https://www.google.com/search?q=${encoded}&hl=ko&gl=kr&tbm=lcl`, {
-        headers: { "User-Agent": ua, "Accept-Language": "ko-KR,ko;q=0.9", "Accept": "text/html" }
+        headers: {"User-Agent":ua,"Accept-Language":"ko-KR,ko;q=0.9","Accept":"text/html"}
       });
       const gHtml = await gRes.text();
       const gTitles = [];
-
-      // 패턴 1~5: Google 로컬 검색결과
-      const gPats = [
-        /class="[^"]*dbg0pd[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs,
-        /class="[^"]*OSrXXb[^"]*"[^>]*>(.*?)<\//gs,
-        /aria-label="([^"]+)"[^>]*role="heading/gs,
-        /class="[^"]*rllt__details[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs,
-        /data-item-id="[^"]*"[^>]*>.*?<div[^>]*>(.*?)<\//gs,
-      ];
-      for (const p of gPats) {
-        let m; while ((m = p.exec(gHtml)) !== null) {
-          const t = m[1].replace(/<[^>]*>/g, "").trim();
-          if (t && t.length > 1 && t.length < 60 && !gTitles.includes(t) && !/^[0-9.,\s]+$/.test(t) && gTitles.length < 10) gTitles.push(t);
-        }
+      const gPats = [/class="[^"]*dbg0pd[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs, /class="[^"]*OSrXXb[^"]*"[^>]*>(.*?)<\//gs, /aria-label="([^"]+)"[^>]*role="heading/gs, /class="[^"]*rllt__details[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs];
+      for (const p of gPats) { let m; while ((m = p.exec(gHtml)) !== null) { const t = (m[1]||"").replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<60 && !gTitles.includes(t) && !/^[0-9.,\s]+$/.test(t) && gTitles.length<10) gTitles.push(t); } }
+      if (!gTitles.length) {
+        const g2 = await fetch(`https://www.google.com/search?q=${encoded}+지도&hl=ko&gl=kr`, {headers:{"User-Agent":ua,"Accept-Language":"ko-KR"}});
+        const g2H = await g2.text();
+        const g2P = [/class="[^"]*dbg0pd[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs, /class="[^"]*OSrXXb[^"]*"[^>]*>(.*?)<\//gs, /aria-level="3"[^>]*>(.*?)<\//gs];
+        for (const p of g2P) { let m; while ((m = p.exec(g2H)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<60 && !gTitles.includes(t) && !/^[0-9.,\s]+$/.test(t) && gTitles.length<10) gTitles.push(t); } }
       }
-
-      // Fallback: "keyword 근처" 형태 구글 검색
-      if (gTitles.length === 0) {
-        const g2Res = await fetch(`https://www.google.com/search?q=${encoded}+지도&hl=ko&gl=kr`, {
-          headers: { "User-Agent": ua, "Accept-Language": "ko-KR,ko;q=0.9" }
-        });
-        const g2Html = await g2Res.text();
-        const g2Pats = [
-          /class="[^"]*dbg0pd[^"]*"[^>]*>.*?<[^>]*>(.*?)<\//gs,
-          /class="[^"]*OSrXXb[^"]*"[^>]*>(.*?)<\//gs,
-          /aria-level="3"[^>]*>(.*?)<\//gs,
-        ];
-        for (const p of g2Pats) {
-          let m; while ((m = p.exec(g2Html)) !== null) {
-            const t = m[1].replace(/<[^>]*>/g, "").trim();
-            if (t && t.length > 1 && t.length < 60 && !gTitles.includes(t) && !/^[0-9.,\s]+$/.test(t) && gTitles.length < 10) gTitles.push(t);
-          }
-        }
-      }
-
-      results.googleMap = { titles: gTitles.slice(0, 10) };
-      if (targets?.placeName) { const i = gTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.googleMap.rank = i >= 0 ? i + 1 : null; }
+      results.googleMap = { titles: gTitles.slice(0,10) };
+      if (targets?.placeName) { const i = gTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.googleMap.rank = i>=0 ? i+1 : null; }
     } catch (e) { results.googleMap = { error: e.message, titles: [] }; }
 
     // ============ 6. 카카오 지도 ============
     try {
       const kakaoKey = process.env.KAKAO_REST_API_KEY;
       let kTitles = [];
-
       if (kakaoKey) {
-        // 방법1: 카카오 로컬 REST API (가장 정확)
-        const kRes = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encoded}&size=10`, {
-          headers: { "Authorization": `KakaoAK ${kakaoKey}` }
-        });
+        const kRes = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encoded}&size=10`, { headers: {"Authorization":`KakaoAK ${kakaoKey}`} });
         const kData = await kRes.json();
         kTitles = (kData?.documents || []).map(d => d.place_name).filter(Boolean);
       }
-
-      // 방법2: 카카오맵 웹 검색 (API 키 없을 때)
       if (!kTitles.length) {
-        const k2Res = await fetch(`https://search.map.kakao.com/mapsearch/map.daum?q=${encoded}&msFlag=A&sort=0`, { headers });
-        const k2Text = await k2Res.text();
-        // JSON 파싱 시도
-        try {
-          const kData = JSON.parse(k2Text);
-          kTitles = (kData?.place || kData?.result?.place || []).map(p => p.placeName || p.name).filter(Boolean);
-        } catch {
-          // HTML에서 추출
-          const pats = [/"placeName"\s*:\s*"([^"]+)"/g, /"name"\s*:\s*"([^"]+)"/g];
-          for (const p of pats) { let m; while ((m = p.exec(k2Text)) !== null) { if (m[1] && !kTitles.includes(m[1]) && m[1].length > 1) kTitles.push(m[1]); } }
-        }
+        const k2 = await fetch(`https://search.map.kakao.com/mapsearch/map.daum?q=${encoded}&msFlag=A&sort=0`, { headers });
+        const k2T = await k2.text();
+        try { const kD = JSON.parse(k2T); kTitles = (kD?.place||kD?.result?.place||[]).map(p=>p.placeName||p.name).filter(Boolean); }
+        catch { const kP = [/"placeName"\s*:\s*"([^"]+)"/g,/"name"\s*:\s*"([^"]+)"/g]; for (const p of kP) { let m; while ((m = p.exec(k2T)) !== null) { if (m[1] && !kTitles.includes(m[1]) && m[1].length>1) kTitles.push(m[1]); } } }
       }
-
-      results.kakaoMap = { titles: kTitles.slice(0, 10) };
-      if (targets?.placeName && kTitles.length) { const i = kTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.kakaoMap.rank = i >= 0 ? i + 1 : null; }
+      results.kakaoMap = { titles: kTitles.slice(0,10) };
+      if (targets?.placeName && kTitles.length) { const i = kTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.kakaoMap.rank = i>=0 ? i+1 : null; }
     } catch (e) { results.kakaoMap = { error: e.message, titles: [] }; }
 
-    // ============ 7. 리뷰 + 감성분석 ============
+    // ============ 7. 리뷰 + 감성분석 (플랫폼별) ============
     if (action === "reviews" && targets?.placeName) {
-      try {
-        const sRes = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${keyword} ${targets.placeName}&type=all`, { headers: { ...headers, "Accept": "application/json" } });
-        const sData = await sRes.json();
-        const place = (sData?.result?.place?.list || [])[0];
-        if (place?.id) {
-          const rvRes = await fetch(`https://m.place.naver.com/restaurant/${place.id}/review/visitor`, { headers });
-          const rvHtml = await rvRes.text();
+      const negWords = ["별로","최악","불친절","비추","실망","후회","더럽","불만","짜증","나쁘","형편없","엉망","불결","비싸","과대광고","거짓","사기","불쾌","무례","답답","오래걸","잘못","아프","통증","부작용","안가","비위생","지저분","냄새","후기조작","광고"];
+      const posWords = ["좋","추천","만족","친절","깨끗","최고","훌륭","감사","편안","자연스러","대박","완벽","예쁘","재방문","또 올","다시","맛있","짱","감동","전문","세심","꼼꼼","정성"];
+      const analyzeSentiment = (text) => {
+        const lo = text.toLowerCase();
+        const fn = negWords.filter(w => lo.includes(w));
+        const fp = posWords.filter(w => lo.includes(w));
+        return { sentiment: fn.length > fp.length ? "negative" : fp.length > fn.length ? "positive" : "neutral", negWords: fn, posWords: fp };
+      };
+
+      if (platform === "naver" || !platform) {
+        // 네이버 플레이스 리뷰
+        try {
+          const sRes = await fetch(`https://map.naver.com/p/api/search/allSearch?query=${keyword} ${targets.placeName}&type=all`, { headers: {...headers,"Accept":"application/json"} });
+          const sData = await sRes.json();
+          const place = (sData?.result?.place?.list || [])[0];
+          if (place?.id) {
+            // 방문자 리뷰 페이지
+            const rvRes = await fetch(`https://m.place.naver.com/restaurant/${place.id}/review/visitor`, { headers });
+            const rvHtml = await rvRes.text();
+            const reviews = [];
+            const rvPat = /"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+            let rvm;
+            while ((rvm = rvPat.exec(rvHtml)) !== null) {
+              const text = rvm[1].replace(/\\n/g," ").replace(/\\"/g,'"').replace(/\\u[\dA-Fa-f]{4}/g, c2 => String.fromCharCode(parseInt(c2.slice(2),16))).trim();
+              if (text.length > 10 && reviews.length < 30) {
+                const s = analyzeSentiment(text);
+                reviews.push({ text: text.slice(0,200), ...s });
+              }
+            }
+            results.reviews = { placeId: place.id, placeName: place.name, platform: "naver", reviews, negCount: reviews.filter(r=>r.sentiment==="negative").length };
+          }
+        } catch (e) { results.reviews = { error: e.message, platform: "naver" }; }
+      }
+
+      if (platform === "google") {
+        // 구글 리뷰 (구글 검색결과에서 추출)
+        try {
+          const gRes = await fetch(`https://www.google.com/search?q=${encoded}+${encodeURIComponent(targets.placeName)}+리뷰&hl=ko&gl=kr`, {
+            headers: {"User-Agent":ua,"Accept-Language":"ko-KR"}
+          });
+          const gHtml = await gRes.text();
           const reviews = [];
-          const rvPat = /"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-          let rvm;
-          const negWords = ["별로","최악","불친절","비추","실망","후회","더럽","불만","짜증","나쁘","형편없","엉망","불결","비싸","과대광고","거짓","사기","불쾌","무례","답답","오래걸","잘못","아프","통증","부작용","안가","비위생","지저분","냄새"];
-          const posWords = ["좋","추천","만족","친절","깨끗","최고","훌륭","감사","편안","자연스러","대박","완벽","예쁘","재방문","또 올","다시","맛있","짱","감동","전문","세심","꼼꼼"];
-          while ((rvm = rvPat.exec(rvHtml)) !== null) {
-            const text = rvm[1].replace(/\\n/g," ").replace(/\\"/g,'"').replace(/\\u[\dA-Fa-f]{4}/g, c2 => String.fromCharCode(parseInt(c2.slice(2),16))).trim();
-            if (text.length > 10 && reviews.length < 30) {
-              const lo = text.toLowerCase();
-              const fn = negWords.filter(w => lo.includes(w));
-              const fp = posWords.filter(w => lo.includes(w));
-              reviews.push({ text: text.slice(0,200), sentiment: fn.length > fp.length ? "negative" : fp.length > fn.length ? "positive" : "neutral", negWords: fn, posWords: fp });
+          // 구글 리뷰 텍스트 추출
+          const gRevPats = [
+            /class="[^"]*review-snippet[^"]*"[^>]*>(.*?)<\//gs,
+            /data-review-id="[^"]*"[^>]*>.*?"((?:[^"\\]|\\.){20,}?)"/gs,
+            /"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
+          ];
+          for (const p of gRevPats) {
+            let m; while ((m = p.exec(gHtml)) !== null && reviews.length < 20) {
+              const text = m[1].replace(/<[^>]*>/g,"").replace(/\\n/g," ").trim();
+              if (text.length > 15) { const s = analyzeSentiment(text); reviews.push({ text: text.slice(0,200), ...s }); }
             }
           }
-          results.reviews = { placeId: place.id, placeName: place.name, reviews, negCount: reviews.filter(r => r.sentiment === "negative").length };
-        }
-      } catch (e) { results.reviews = { error: e.message }; }
+          results.reviews = { placeName: targets.placeName, platform: "google", reviews, negCount: reviews.filter(r=>r.sentiment==="negative").length };
+        } catch (e) { results.reviews = { error: e.message, platform: "google" }; }
+      }
+
+      if (platform === "kakao") {
+        // 카카오맵 리뷰
+        try {
+          const kakaoKey = process.env.KAKAO_REST_API_KEY;
+          let placeId = null;
+          if (kakaoKey) {
+            const kRes = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${keyword} ${targets.placeName}&size=1`, { headers: {"Authorization":`KakaoAK ${kakaoKey}`} });
+            const kData = await kRes.json();
+            placeId = kData?.documents?.[0]?.id;
+          }
+          if (placeId) {
+            const rvRes = await fetch(`https://place.map.kakao.com/m/commentlist/v/${placeId}`, { headers });
+            const rvText = await rvRes.text();
+            const reviews = [];
+            try {
+              const rvData = JSON.parse(rvText);
+              (rvData?.comment?.list || []).forEach(c => {
+                if (c.contents && c.contents.length > 10 && reviews.length < 30) {
+                  const s = analyzeSentiment(c.contents);
+                  reviews.push({ text: c.contents.slice(0,200), ...s });
+                }
+              });
+            } catch {
+              const cPat = /"contents"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+              let cm; while ((cm = cPat.exec(rvText)) !== null && reviews.length < 30) {
+                const text = cm[1].replace(/\\n/g," ").trim();
+                if (text.length > 10) { const s = analyzeSentiment(text); reviews.push({ text: text.slice(0,200), ...s }); }
+              }
+            }
+            results.reviews = { placeName: targets.placeName, platform: "kakao", reviews, negCount: reviews.filter(r=>r.sentiment==="negative").length };
+          } else {
+            results.reviews = { placeName: targets.placeName, platform: "kakao", reviews: [], error: "카카오 API 키가 필요합니다" };
+          }
+        } catch (e) { results.reviews = { error: e.message, platform: "kakao" }; }
+      }
     }
 
-    // ============ 8. 월 검색량 ============
+    // ============ 8. 월 검색량 (네이버 키워드 광고 도구) ============
     try {
+      // 방법1: 네이버 검색광고 키워드도구 (비인증)
       const svRes = await fetch(`https://manage.searchad.naver.com/keywordstool?format=json&hintKeywords=${encoded}&includeRecent=true`, {
-        headers: { ...headers, "Accept": "application/json", "Referer": "https://manage.searchad.naver.com/" }
+        headers: {...headers, "Accept":"application/json", "Referer":"https://manage.searchad.naver.com/"}
       });
-      const svText = await svRes.text();
+      if (svRes.ok) {
+        const svText = await svRes.text();
+        try {
+          const svData = JSON.parse(svText);
+          if (svData?.keywordList?.length) {
+            const matched = svData.keywordList.find(k => k.relKeyword === keyword) || svData.keywordList[0];
+            if (matched) {
+              const vol = +(matched.monthlyPcQcCnt||0) + +(matched.monthlyMobileQcCnt||0);
+              if (vol > 0) results.monthlySearch = vol;
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    // 방법2: 네이버 연관 키워드에서 검색량 추정
+    if (!results.monthlySearch) {
       try {
-        const svData = JSON.parse(svText);
-        if (svData?.keywordList?.length) {
-          const matched = svData.keywordList.find(k => k.relKeyword === keyword) || svData.keywordList[0];
-          if (matched) results.monthlySearch = +(matched.monthlyPcQcCnt || 0) + +(matched.monthlyMobileQcCnt || 0);
+        const relRes = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}&sm=top_hty`, { headers });
+        const relHtml = await relRes.text();
+        // "약 N건" 패턴에서 총 문서수 추출 → 간접 추정
+        const countRe = /(?:약|총)\s*([\d,]+)\s*건/;
+        const cm = relHtml.match(countRe);
+        if (cm) {
+          const total = +(cm[1].replace(/,/g,""));
+          // 문서수의 약 0.5~1%가 월검색량 (아주 대략적 추정)
+          if (total > 1000) results.monthlySearch = Math.round(total * 0.005);
+          if (results.monthlySearch) results.monthlySearchNote = "추정치";
         }
       } catch {}
-    } catch {}
+    }
 
     return Response.json({ keyword, timestamp: new Date().toISOString(), results });
   } catch (err) {
