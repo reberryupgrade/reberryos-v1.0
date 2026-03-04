@@ -2059,8 +2059,13 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                 </Modal>
               )}
               {modal?.type==="reviews"&&(
-                <Modal title={`💬 ${modal.data.placeName||modal.keyword} - ${modal.platform==="google"?"구글맵":modal.platform==="kakao"?"카카오맵":"플레이스"} 리뷰 분석`} onClose={()=>setModal(null)}>
+                <Modal title={`💬 ${modal.data.placeName||modal.keyword} - ${modal.platform==="google"?"구글맵":modal.platform==="kakao"?"카카오맵":"플레이스"} ${modal.data.reviewType||"리뷰"} 분석`} onClose={()=>setModal(null)}>
                   <div style={{maxHeight:"65vh",overflowY:"auto"}}>
+                    {modal.data.error&&(
+                      <div style={{background:"#2d1f0f",borderRadius:10,padding:"12px 16px",marginBottom:14,border:"1px solid #f59e0b44"}}>
+                        <div style={{color:"#f59e0b",fontWeight:700,fontSize:13}}>⚠️ {modal.data.error}</div>
+                      </div>
+                    )}
                     {modal.data.negCount>0&&(
                       <div style={{background:"#2d0f0f",borderRadius:10,padding:"12px 16px",marginBottom:14,border:"1px solid #ef444444"}}>
                         <div style={{color:"#ef4444",fontWeight:800,fontSize:14}}>⚠️ 부정적 리뷰 {modal.data.negCount}건 감지</div>
@@ -2070,13 +2075,19 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                     {(modal.data.reviews||[]).map((rv,i)=>(
                       <div key={i} style={{background:rv.sentiment==="negative"?"#1a0f0f":rv.sentiment==="positive"?"#0f1a15":"#0f172a",borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${rv.sentiment==="negative"?"#ef4444":rv.sentiment==="positive"?"#10b981":"#475569"}`}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                          <span style={{fontSize:12,fontWeight:700,color:rv.sentiment==="negative"?"#ef4444":rv.sentiment==="positive"?"#10b981":"#94a3b8"}}>{rv.sentiment==="negative"?"👎 부정":rv.sentiment==="positive"?"👍 긍정":"😐 중립"}</span>
+                          <span style={{fontSize:12,fontWeight:700,color:rv.sentiment==="negative"?"#ef4444":rv.sentiment==="positive"?"#10b981":"#94a3b8"}}>{rv.sentiment==="negative"?"👎 부정":rv.sentiment==="positive"?"👍 긍정":"😐 중립"}{rv.type?` (${rv.type})`:""}{rv.author?` · ${rv.author}`:""}</span>
                           {rv.negWords&&rv.negWords.length>0&&<span style={{fontSize:11,color:"#ef4444"}}>{rv.negWords.join(", ")}</span>}
                         </div>
                         <div style={{color:"#e2e8f0",fontSize:13,lineHeight:"1.5"}}>{rv.text}</div>
                       </div>
                     ))}
                     {(!modal.data.reviews||!modal.data.reviews.length)&&<div style={{color:"#475569",textAlign:"center",padding:20}}>리뷰를 찾을 수 없습니다</div>}
+                    {modal.data._debug&&(
+                      <div style={{marginTop:12,background:"#1a1a2e",borderRadius:8,padding:"10px 12px",border:"1px solid #334155"}}>
+                        <div style={{color:"#f59e0b",fontSize:11,fontWeight:700,marginBottom:4}}>🔧 디버그</div>
+                        <pre style={{color:"#64748b",fontSize:10,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(modal.data._debug,null,2)}</pre>
+                      </div>
+                    )}
                   </div>
                 </Modal>
               )}
