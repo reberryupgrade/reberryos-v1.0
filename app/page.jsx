@@ -9,45 +9,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-function extractYtChannelId(url){
-  if(!url)return null;
-  const m1=url.match(/youtube\.com\/channel\/([\w-]+)/);if(m1)return{type:"id",val:m1[1]};
-  const m2=url.match(/youtube\.com\/@([\w.-]+)/);if(m2)return{type:"handle",val:m2[1]};
-  const m3=url.match(/youtube\.com\/c\/([\w.-]+)/);if(m3)return{type:"custom",val:m3[1]};
-  if(/^UC[\w-]{22}$/.test(url))return{type:"id",val:url};
-  return null;
-}
-async function resolveYtChannelId(input){
-  const parsed=extractYtChannelId(input);
-  if(!parsed){
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(input)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
-    const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
-  }
-  if(parsed.type==="id")return parsed.val;
-  const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(parsed.val)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
-  const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
-}
-async function fetchYtChannelVideos(channelId,maxResults=10){
-  try{
-    const cr=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet,statistics&id=${channelId}&key=${YT_API_KEY}`);
-    const cd=await cr.json();if(!cd.items||!cd.items.length)return null;
-    const ch=cd.items[0];const uploadsId=ch.contentDetails.relatedPlaylists.uploads;
-    const pr=await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=${maxResults}&key=${YT_API_KEY}`);
-    const pd=await pr.json();if(!pd.items)return{channel:ch,videos:[]};
-    const videoIds=pd.items.map(i=>i.snippet.resourceId.videoId).join(",");
-    const vr=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${YT_API_KEY}`);
-    const vd=await vr.json();
-    const videos=(vd.items||[]).map(v=>({
-      videoId:v.id,title:v.snippet.title,url:`https://youtube.com/watch?v=${v.id}`,
-      views:+(v.statistics.viewCount||0),likes:+(v.statistics.likeCount||0),
-      commentCount:+(v.statistics.commentCount||0),
-      thumbnail:v.snippet.thumbnails?.medium?.url||"",
-      publishedAt:v.snippet.publishedAt?.split("T")[0]||""
-    }));
-    return{channel:{id:channelId,name:ch.snippet.title,thumbnail:ch.snippet.thumbnails?.default?.url||"",subscribers:+(ch.statistics.subscriberCount||0),totalViews:+(ch.statistics.viewCount||0),videoCount:+(ch.statistics.videoCount||0)},videos};
-  }catch(e){console.error("YT channel videos error:",e);return null;}
-}
-
 const TAB_TYPES = ["블로그","지식인","카페","플레이스","뉴스","파워링크"];
 
 const YT_API_KEY="AIzaSyBaQzlNcJldt5zuPR_1CtD-1zsBvcKITl0";
