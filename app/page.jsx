@@ -208,7 +208,7 @@ function SimpleForm({fields,onSave,initial}){
   return (
     <div>
       {parsed.map(({k,l,p,isDate,opts})=><FF key={k} label={l}>{isDate?(
-        <input type="date" value={form[k]||""} onChange={e=>setForm({...form,[k]:e.target.value})} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
+        <input type="date" max="9999-12-31" value={form[k]||""} onChange={e=>setForm({...form,[k]:e.target.value})} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
       ):opts?(
         <div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
@@ -244,7 +244,7 @@ function OfflineForm({fields,onSave,initial}){
       {parsed.map(({k,l,p,opts})=>(
         <FF key={k} label={l}>
           {(k==="startDate"||k==="endDate")?(
-            <input type="date" value={form[k]||""} onChange={e=>u(k,e.target.value)} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
+            <input type="date" max="9999-12-31" value={form[k]||""} onChange={e=>u(k,e.target.value)} style={{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"10px 12px",color:"#e2e8f0",fontSize:14,outline:"none"}}/>
           ):opts?(
             <div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
