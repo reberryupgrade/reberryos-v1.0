@@ -27,7 +27,7 @@ export async function POST(req) {
       }
 
       // 방법2: class="sc_new sp_*" (이전 버전)
-      if (tabOrder.length < 3) {
+      {
         const scRe = /class="[^"]*sc_new\s+sp_(\w+)/g;
         while ((mm = scRe.exec(html)) !== null) {
           const key = mm[1].replace(/nrank|ntotal/g,"").toLowerCase();
@@ -37,18 +37,18 @@ export async function POST(req) {
         }
       }
 
-      // 방법3: section id/class 위치 기반 (최후 수단)
-      if (tabOrder.length < 3) {
+      // 방법3: section id/class 위치 기반
+      {
         const secs = [
-          {name:"파워링크",re:[/id="power_link_body/i,/class="[^"]*ad_section/i,/class="[^"]*_plink/i]},
-          {name:"플레이스",re:[/class="[^"]*sc_new[^"]*place/i,/class="[^"]*place_section/i,/class="[^"]*LocalInfo/i]},
-          {name:"블로그",re:[/class="[^"]*sc_new[^"]*blog/i,/class="[^"]*blog_section/i]},
-          {name:"카페",re:[/class="[^"]*sc_new[^"]*cafe/i]},
-          {name:"지식인",re:[/class="[^"]*sc_new[^"]*kin/i]},
-          {name:"뉴스",re:[/class="[^"]*sc_new[^"]*news/i,/class="[^"]*news_section/i]},
-          {name:"동영상",re:[/class="[^"]*sc_new[^"]*video/i,/class="[^"]*sc_new[^"]*vod/i]},
-          {name:"쇼핑",re:[/class="[^"]*sc_new[^"]*shop/i]},
-          {name:"이미지",re:[/class="[^"]*sc_new[^"]*image/i]},
+          {name:"파워링크",re:[/id="power_link_body/i,/class="[^"]*ad_section/i,/class="[^"]*_plink/i,/data-module-name="powerlink/i]},
+          {name:"플레이스",re:[/class="[^"]*place/i,/class="[^"]*LocalInfo/i,/data-module-name="(?:place|local)/i]},
+          {name:"블로그",re:[/class="[^"]*blog/i,/data-module-name="blog/i]},
+          {name:"카페",re:[/class="[^"]*cafe/i,/data-module-name="cafe/i]},
+          {name:"지식인",re:[/class="[^"]*kin/i,/data-module-name="kin/i]},
+          {name:"뉴스",re:[/class="[^"]*news/i,/data-module-name="news/i]},
+          {name:"동영상",re:[/class="[^"]*video/i,/class="[^"]*vod/i,/data-module-name="(?:video|vod)/i]},
+          {name:"쇼핑",re:[/class="[^"]*shop/i,/data-module-name="shop/i]},
+          {name:"이미지",re:[/class="[^"]*image/i,/data-module-name="image/i]},
         ];
         const pos = [];
         for (const s of secs) {
@@ -62,13 +62,40 @@ export async function POST(req) {
       }
 
       // 방법4: 한글 섹션 제목으로 감지
-      if (tabOrder.length < 3) {
+      {
         const titleMap = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식iN":"지식인","지식인":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑"};
         const titleRe = /class="[^"]*(?:tit_area|api_title|fds-comps-header-headline)[^"]*"[^>]*>.*?([가-힣]+)/gs;
         while ((mm = titleRe.exec(html)) !== null) {
           const name = titleMap[mm[1]];
           if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
         }
+      }
+
+      // 방법5: 한글 키워드 위치로 직접 감지 (해외IP 대응)
+      if (tabOrder.length < 3) {
+        const kwMap = [
+          {keywords:["파워링크","광고"],name:"파워링크"},
+          {keywords:["플레이스","지도"],name:"플레이스"},
+          {keywords:["블로그"],name:"블로그"},
+          {keywords:["카페"],name:"카페"},
+          {keywords:["지식iN","지식인"],name:"지식인"},
+          {keywords:["뉴스"],name:"뉴스"},
+          {keywords:["이미지"],name:"이미지"},
+          {keywords:["동영상","영상"],name:"동영상"},
+          {keywords:["쇼핑","가격비교"],name:"쇼핑"},
+        ];
+        const kwPos = [];
+        for (const item of kwMap) {
+          if (seen.has(item.name)) continue;
+          let minPos = Infinity;
+          for (const kw of item.keywords) {
+            const idx = html.indexOf(kw);
+            if (idx >= 0 && idx < minPos) minPos = idx;
+          }
+          if (minPos < Infinity) kwPos.push({name:item.name,pos:minPos});
+        }
+        kwPos.sort((a,b)=>a.pos-b.pos);
+        kwPos.forEach(p => { if (!seen.has(p.name)) { tabOrder.push(p.name); seen.add(p.name); } });
       }
 
       results.tabOrder = tabOrder;
@@ -158,7 +185,13 @@ export async function POST(req) {
         for (const p of g2P) { let m; while ((m = p.exec(g2H)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<60 && !gTitles.includes(t) && !/^[0-9.,\s]+$/.test(t) && gTitles.length<10) gTitles.push(t); } }
       }
       results.googleMap = { titles: gTitles.slice(0,10) };
-      if (targets?.placeName) { const i = gTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.googleMap.rank = i>=0 ? i+1 : null; }
+      if (targets?.placeName) {
+        const pn = tl(targets.placeName);
+        let i = gTitles.findIndex(t => tl(t).includes(pn));
+        if (i < 0) i = gTitles.findIndex(t => pn.includes(tl(t)));
+        if (i < 0) { const pnNoSpace = pn.replace(/\s/g,""); i = gTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNoSpace) || pnNoSpace.includes(tl(t).replace(/\s/g,""))); }
+        results.googleMap.rank = i>=0 ? i+1 : null;
+      }
     } catch (e) { results.googleMap = { error: e.message, titles: [] }; }
 
     // ============ 6. 카카오 지도 ============
@@ -186,7 +219,17 @@ export async function POST(req) {
         catch { const kP = [/"placeName"\s*:\s*"([^"]+)"/g,/"name"\s*:\s*"([^"]+)"/g]; for (const p of kP) { let m; while ((m = p.exec(k2T)) !== null) { if (m[1] && !kTitles.includes(m[1]) && m[1].length>1) kTitles.push(m[1]); } } }
       }
       results.kakaoMap = { titles: kTitles.slice(0,10), _debug: kakaoDebug };
-      if (targets?.placeName && kTitles.length) { const i = kTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.kakaoMap.rank = i>=0 ? i+1 : null; }
+      if (targets?.placeName && kTitles.length) {
+        const pn = tl(targets.placeName);
+        // 정확 포함 매칭
+        let i = kTitles.findIndex(t => tl(t).includes(pn));
+        // 역방향 매칭 (placeName이 더 긴 경우)
+        if (i < 0) i = kTitles.findIndex(t => pn.includes(tl(t)));
+        // 공백 제거 매칭
+        if (i < 0) { const pnNoSpace = pn.replace(/\s/g,""); i = kTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNoSpace) || pnNoSpace.includes(tl(t).replace(/\s/g,""))); }
+        results.kakaoMap.rank = i>=0 ? i+1 : null;
+        kakaoDebug.matchAttempt = { placeName: targets.placeName, matched: i>=0, matchIndex: i };
+      }
     } catch (e) { results.kakaoMap = { error: e.message, titles: [], _debug: { catchError: e.message } }; }
 
     // ============ 7. 리뷰 + 감성분석 (플랫폼별) ============
@@ -321,7 +364,8 @@ export async function POST(req) {
           headers: {
             "X-Timestamp": timestamp,
             "X-API-KEY": adApiKey,
-            "X-Customer": adCustomerId,
+            "X-API-SECRET": adSecret,
+            "X-Customer": String(adCustomerId),
             "X-Signature": signature,
           }
         });
