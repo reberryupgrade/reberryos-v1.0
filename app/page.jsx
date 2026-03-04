@@ -1022,6 +1022,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     else if(r.kakaoMap?.titles?.length)updates.rankKakao="미노출";
     if(r.tabOrder)updates.detectedTabOrder=r.tabOrder;
     if(r.monthlySearch)updates.monthlySearch=r.monthlySearch;
+    if(r.monthlySearchDetail)updates.monthlySearchDetail=r.monthlySearchDetail;
     updates._rankDetail={
       blog:r.blog?.titles||[],place:r.place?.titles||[],cafe:r.cafe?.titles||[],
       knowledge:r.knowledge?.titles||[],news:r.news?.titles||[],
@@ -1887,7 +1888,15 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
               {modal?.type==="trend"&&(
                 <Modal title={`📈 ${modal.item.keyword}`} onClose={()=>setModal(null)} wide>
                   <div style={{textAlign:"center",marginBottom:12}}><span style={{color:"#06b6d4",fontWeight:800,fontSize:22}}>{fmt(modal.item.monthlySearch)}</span><span style={{color:"#94a3b8",fontSize:14}}> 회/월</span></div>
-                  {modal.item.trend?<ResponsiveContainer width="100%" height={200}><LineChart data={modal.item.trend} margin={{top:10,right:20,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/><XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}}/><YAxis tick={{fontSize:11,fill:"#94a3b8"}} width={50}/><Tooltip formatter={v=>[fmt(v)+"회",""]} contentStyle={{background:"#1e293b",border:"none"}}/><Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{fill:"#6366f1",r:3}}/></LineChart></ResponsiveContainer>:<div style={{color:"#475569",textAlign:"center",padding:20}}>추이 없음</div>}
+                  {modal.item.monthlySearchDetail&&(
+                    <div style={{display:"flex",gap:12,justifyContent:"center",marginBottom:16,flexWrap:"wrap"}}>
+                      <div style={{background:"#0f172a",borderRadius:10,padding:"10px 16px",textAlign:"center"}}><div style={{color:"#94a3b8",fontSize:11}}>PC</div><div style={{color:"#6366f1",fontWeight:800,fontSize:16}}>{fmt(modal.item.monthlySearchDetail.pc)}</div></div>
+                      <div style={{background:"#0f172a",borderRadius:10,padding:"10px 16px",textAlign:"center"}}><div style={{color:"#94a3b8",fontSize:11}}>모바일</div><div style={{color:"#10b981",fontWeight:800,fontSize:16}}>{fmt(modal.item.monthlySearchDetail.mobile)}</div></div>
+                      {modal.item.monthlySearchDetail.comp&&<div style={{background:"#0f172a",borderRadius:10,padding:"10px 16px",textAlign:"center"}}><div style={{color:"#94a3b8",fontSize:11}}>경쟁강도</div><div style={{color:modal.item.monthlySearchDetail.comp==="HIGH"?"#ef4444":modal.item.monthlySearchDetail.comp==="MEDIUM"?"#f59e0b":"#10b981",fontWeight:800,fontSize:14}}>{modal.item.monthlySearchDetail.comp==="HIGH"?"높음":modal.item.monthlySearchDetail.comp==="MEDIUM"?"보통":"낮음"}</div></div>}
+                      {modal.item.monthlySearchDetail.monthlyAvgClickRate>0&&<div style={{background:"#0f172a",borderRadius:10,padding:"10px 16px",textAlign:"center"}}><div style={{color:"#94a3b8",fontSize:11}}>평균 클릭률</div><div style={{color:"#f59e0b",fontWeight:800,fontSize:14}}>{(modal.item.monthlySearchDetail.monthlyAvgClickRate*100).toFixed(1)}%</div></div>}
+                    </div>
+                  )}
+                  {modal.item.trend?<ResponsiveContainer width="100%" height={200}><LineChart data={modal.item.trend} margin={{top:10,right:20,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/><XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}}/><YAxis tick={{fontSize:11,fill:"#94a3b8"}} width={50}/><Tooltip formatter={v=>[fmt(v)+"회",""]} contentStyle={{background:"#1e293b",border:"none"}}/><Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{fill:"#6366f1",r:3}}/></LineChart></ResponsiveContainer>:<div style={{color:"#475569",textAlign:"center",padding:20}}>추이 없음 (AI 제안 키워드만 차트 제공)</div>}
                 </Modal>
               )}
               {modal?.type==="rankDetail"&&(
@@ -1905,7 +1914,6 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       {key:"blog",label:"📝 블로그",color:"#6366f1"},
                       {key:"place",label:"📍 플레이스",color:"#06b6d4"},
                       {key:"cafe",label:"☕ 카페",color:"#ec4899"},
-                      {key:"place",label:"📍 네이버 플레이스",color:"#06b6d4"},
                       {key:"googleMap",label:"🌐 구글맵",color:"#f97316"},
                       {key:"kakaoMap",label:"🟡 카카오맵",color:"#fbbf24"},
                       {key:"knowledge",label:"❓ 지식인",color:"#f59e0b"},

@@ -265,43 +265,59 @@ export async function POST(req) {
       }
     }
 
-    // ============ 8. 월 검색량 (네이버 키워드 광고 도구) ============
+    // ============ 8. 월 검색량 (네이버 검색광고 공식 API) ============
     try {
-      // 방법1: 네이버 검색광고 키워드도구 (비인증)
-      const svRes = await fetch(`https://manage.searchad.naver.com/keywordstool?format=json&hintKeywords=${encoded}&includeRecent=true`, {
-        headers: {...headers, "Accept":"application/json", "Referer":"https://manage.searchad.naver.com/"}
-      });
-      if (svRes.ok) {
-        const svText = await svRes.text();
-        try {
-          const svData = JSON.parse(svText);
+      const adApiKey = process.env.NAVER_AD_API_KEY;
+      const adSecret = process.env.NAVER_AD_SECRET;
+      const adCustomerId = process.env.NAVER_AD_CUSTOMER_ID;
+
+      if (adApiKey && adSecret && adCustomerId) {
+        const timestamp = String(Date.now());
+        const method = "GET";
+        const path = "/keywordstool";
+
+        // HMAC-SHA256 서명 생성
+        const crypto = await import("crypto");
+        const hmac = crypto.createHmac("sha256", adSecret);
+        hmac.update(timestamp + "." + method + "." + path);
+        const signature = hmac.digest("base64");
+
+        const apiUrl = `https://api.searchad.naver.com/keywordstool?hintKeywords=${encoded}&showDetail=1`;
+        const svRes = await fetch(apiUrl, {
+          headers: {
+            "X-Timestamp": timestamp,
+            "X-API-KEY": adApiKey,
+            "X-Customer": adCustomerId,
+            "X-Signature": signature,
+            "Content-Type": "application/json",
+          }
+        });
+
+        if (svRes.ok) {
+          const svData = await svRes.json();
           if (svData?.keywordList?.length) {
-            const matched = svData.keywordList.find(k => k.relKeyword === keyword) || svData.keywordList[0];
-            if (matched) {
-              const vol = +(matched.monthlyPcQcCnt||0) + +(matched.monthlyMobileQcCnt||0);
-              if (vol > 0) results.monthlySearch = vol;
+            const matched = svData.keywordList.find(k => k.relKeyword === keyword);
+            const first = svData.keywordList[0];
+            const target = matched || first;
+            if (target) {
+              const pcVol = target.monthlyPcQcCnt === "< 10" ? 5 : +(target.monthlyPcQcCnt || 0);
+              const moVol = target.monthlyMobileQcCnt === "< 10" ? 5 : +(target.monthlyMobileQcCnt || 0);
+              const vol = pcVol + moVol;
+              if (vol > 0) {
+                results.monthlySearch = vol;
+                results.monthlySearchDetail = {
+                  pc: pcVol,
+                  mobile: moVol,
+                  comp: target.compIdx || "",
+                  monthlyAvgClickCnt: target.monthlyAvgClickCnt || 0,
+                  monthlyAvgClickRate: target.monthlyAvgClickRate || 0,
+                };
+              }
             }
           }
-        } catch {}
-      }
-    } catch {}
-
-    // 방법2: 네이버 연관 키워드에서 검색량 추정
-    if (!results.monthlySearch) {
-      try {
-        const relRes = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}&sm=top_hty`, { headers });
-        const relHtml = await relRes.text();
-        // "약 N건" 패턴에서 총 문서수 추출 → 간접 추정
-        const countRe = /(?:약|총)\s*([\d,]+)\s*건/;
-        const cm = relHtml.match(countRe);
-        if (cm) {
-          const total = +(cm[1].replace(/,/g,""));
-          // 문서수의 약 0.5~1%가 월검색량 (아주 대략적 추정)
-          if (total > 1000) results.monthlySearch = Math.round(total * 0.005);
-          if (results.monthlySearch) results.monthlySearchNote = "추정치";
         }
-      } catch {}
-    }
+      }
+    } catch (e) { /* 검색광고 API 실패 시 무시 */ }
 
     return Response.json({ keyword, timestamp: new Date().toISOString(), results });
   } catch (err) {
