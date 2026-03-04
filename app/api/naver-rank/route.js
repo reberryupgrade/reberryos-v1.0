@@ -14,22 +14,30 @@ export async function POST(req) {
       const res = await fetch(`https://search.naver.com/search.naver?where=nexearch&query=${encoded}`, { headers });
       const html = await res.text();
 
-      // ---- 탭 순서 감지 (3가지 방법 시도) ----
+      // ---- 탭 순서 감지 (실제 검색결과 섹션만) ----
       const tabOrder = [];
       const seen = new Set();
-      const moduleMap = { "powerlink":"파워링크","nx_brand_search":"브랜드검색","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","book":"도서","encyc":"지식백과","music":"음악" };
+      const moduleMap = { "powerlink":"파워링크","nx_brand_search":"브랜드검색","place":"플레이스","local":"플레이스","blog":"블로그","cafe":"카페","kin":"지식인","news":"뉴스","image":"이미지","video":"동영상","vod":"동영상","shop":"쇼핑","webkr":"웹사이트","book":"도서","encyc":"지식백과","music":"음악","influencer":"인플루언서","populartopic":"인기글","shortform":"숏폼","homepage":"홈페이지","faq":"FAQ","related_query":"함께찾는" };
 
-      // 방법1: data-module-name (최신 네이버)
+      // 네비게이션 영역 건너뛰기: main_pack이 가장 확실한 컨텐츠 시작점
+      let mainStart = html.indexOf('id="main_pack"');
+      if (mainStart < 0) mainStart = html.indexOf('id="content"');
+      if (mainStart < 0) mainStart = html.indexOf('class="content_wrap"');
+      // 어떤 마커도 없으면 상위 30% 건너뛰기 (네비게이션 영역)
+      if (mainStart < 0) mainStart = Math.floor(html.length * 0.3);
+      const mainHtml = html.slice(mainStart);
+
+      // 방법1: data-module-name (가장 정확, 네이버 공식 마크업)
       const modRe = /data-module-name="(\w+)"/g;
-      let mm; while ((mm = modRe.exec(html)) !== null) {
-        const name = moduleMap[mm[1]];
+      let mm; while ((mm = modRe.exec(mainHtml)) !== null) {
+        const name = moduleMap[mm[1]] || mm[1];
         if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
       }
 
-      // 방법2: class="sc_new sp_*" (이전 버전)
+      // 방법2: class="sc_new sp_*" (각 섹션 컨테이너)
       {
         const scRe = /class="[^"]*sc_new\s+sp_(\w+)/g;
-        while ((mm = scRe.exec(html)) !== null) {
+        while ((mm = scRe.exec(mainHtml)) !== null) {
           const key = mm[1].replace(/nrank|ntotal/g,"").toLowerCase();
           const map2 = {plink:"파워링크",nbrand:"브랜드검색",nplace:"플레이스",local:"플레이스",blog:"블로그",cafe:"카페",kin:"지식인",news:"뉴스",image:"이미지",video:"동영상",vod:"동영상",shop:"쇼핑",web:"웹사이트",nkin:"지식인",nshop:"쇼핑",nnews:"뉴스",nblog:"블로그",ncafe:"카페",nvod:"동영상",nimage:"이미지"};
           const name = map2[key];
@@ -37,68 +45,32 @@ export async function POST(req) {
         }
       }
 
-      // 방법3: section id/class 위치 기반
-      {
-        const secs = [
-          {name:"파워링크",re:[/id="power_link_body/i,/class="[^"]*ad_section/i,/class="[^"]*_plink/i,/data-module-name="powerlink/i]},
-          {name:"플레이스",re:[/class="[^"]*place/i,/class="[^"]*LocalInfo/i,/data-module-name="(?:place|local)/i]},
-          {name:"블로그",re:[/class="[^"]*blog/i,/data-module-name="blog/i]},
-          {name:"카페",re:[/class="[^"]*cafe/i,/data-module-name="cafe/i]},
-          {name:"지식인",re:[/class="[^"]*kin/i,/data-module-name="kin/i]},
-          {name:"뉴스",re:[/class="[^"]*news/i,/data-module-name="news/i]},
-          {name:"동영상",re:[/class="[^"]*video/i,/class="[^"]*vod/i,/data-module-name="(?:video|vod)/i]},
-          {name:"쇼핑",re:[/class="[^"]*shop/i,/data-module-name="shop/i]},
-          {name:"이미지",re:[/class="[^"]*image/i,/data-module-name="image/i]},
-        ];
-        const pos = [];
-        for (const s of secs) {
-          if (seen.has(s.name)) continue;
-          let mp = Infinity;
-          for (const r of s.re) { const idx = html.search(r); if (idx >= 0 && idx < mp) mp = idx; }
-          if (mp < Infinity) pos.push({name:s.name,pos:mp});
-        }
-        pos.sort((a,b)=>a.pos-b.pos);
-        pos.forEach(p => { if (!seen.has(p.name)) { tabOrder.push(p.name); seen.add(p.name); } });
-      }
-
-      // 방법4: 한글 섹션 제목으로 감지
-      {
-        const titleMap = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식iN":"지식인","지식인":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑"};
-        const titleRe = /class="[^"]*(?:tit_area|api_title|fds-comps-header-headline)[^"]*"[^>]*>.*?([가-힣]+)/gs;
-        while ((mm = titleRe.exec(html)) !== null) {
-          const name = titleMap[mm[1]];
-          if (name && !seen.has(name)) { tabOrder.push(name); seen.add(name); }
-        }
-      }
-
-      // 방법5: 한글 키워드 위치로 직접 감지 (해외IP 대응)
+      // 방법3: 섹션 제목 패턴 (<h2>, <strong> 등의 헤딩 내부 텍스트만)
       if (tabOrder.length < 3) {
-        const kwMap = [
-          {keywords:["파워링크","광고"],name:"파워링크"},
-          {keywords:["플레이스","지도"],name:"플레이스"},
-          {keywords:["블로그"],name:"블로그"},
-          {keywords:["카페"],name:"카페"},
-          {keywords:["지식iN","지식인"],name:"지식인"},
-          {keywords:["뉴스"],name:"뉴스"},
-          {keywords:["이미지"],name:"이미지"},
-          {keywords:["동영상","영상"],name:"동영상"},
-          {keywords:["쇼핑","가격비교"],name:"쇼핑"},
-        ];
-        const kwPos = [];
-        for (const item of kwMap) {
-          if (seen.has(item.name)) continue;
-          let minPos = Infinity;
-          for (const kw of item.keywords) {
-            const idx = html.indexOf(kw);
-            if (idx >= 0 && idx < minPos) minPos = idx;
+        const headingRe = /<(?:h[23]|strong)[^>]*class="[^"]*(?:tit|title|heading|headline)[^"]*"[^>]*>([\s\S]*?)<\/(?:h[23]|strong)>/gi;
+        const sectionNames = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식iN":"지식인","지식인":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑","인기글":"인기글","함께 많이 찾는":"함께찾는","연관검색어":"연관검색어","홈페이지":"홈페이지"};
+        while ((mm = headingRe.exec(mainHtml)) !== null) {
+          const text = mm[1].replace(/<[^>]*>/g,"").trim();
+          for (const [k,v] of Object.entries(sectionNames)) {
+            if (text.includes(k) && !seen.has(v)) { tabOrder.push(v); seen.add(v); break; }
           }
-          if (minPos < Infinity) kwPos.push({name:item.name,pos:minPos});
         }
-        kwPos.sort((a,b)=>a.pos-b.pos);
-        kwPos.forEach(p => { if (!seen.has(p.name)) { tabOrder.push(p.name); seen.add(p.name); } });
+      }
+
+      // 방법4: api_subject_bx 또는 section 컨테이너 위치 기반
+      if (tabOrder.length < 3) {
+        const secRe = /class="[^"]*(?:api_subject_bx|section_head|sc_new\s)[^"]*"[\s\S]*?(?:>([가-힣A-Za-z]+)<\/(?:h[23]|strong|span|a))/g;
+        const sectionNames = {"파워링크":"파워링크","플레이스":"플레이스","블로그":"블로그","카페":"카페","지식":"지식인","뉴스":"뉴스","이미지":"이미지","동영상":"동영상","쇼핑":"쇼핑","인기글":"인기글","홈페이지":"홈페이지"};
+        while ((mm = secRe.exec(mainHtml)) !== null) {
+          const text = (mm[1]||"").trim();
+          for (const [k,v] of Object.entries(sectionNames)) {
+            if (text.includes(k) && !seen.has(v)) { tabOrder.push(v); seen.add(v); break; }
+          }
+        }
       }
 
       results.tabOrder = tabOrder;
+      results._tabDebug = { method1: tabOrder.length, htmlLen: html.length };
 
       // ---- 플레이스 ----
       const placeTitles = [];

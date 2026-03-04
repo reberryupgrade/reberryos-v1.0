@@ -1020,6 +1020,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     else if(r.googleMap?.titles?.length)updates.rankGoogle="미노출";
     if(r.kakaoMap?.rank)updates.rankKakao=r.kakaoMap.rank+"위";
     else if(r.kakaoMap?.titles?.length)updates.rankKakao="미노출";
+    updates._kakaoInfo={titles:r.kakaoMap?.titles||[],rank:r.kakaoMap?.rank||null,debug:r.kakaoMap?._debug||null};
     if(r.tabOrder&&r.tabOrder.length>0)updates.detectedTabOrder=r.tabOrder;
     if(r.monthlySearch)updates.monthlySearch=r.monthlySearch;
     if(r.monthlySearchDetail)updates.monthlySearchDetail=r.monthlySearchDetail;
