@@ -321,63 +321,66 @@ export async function POST(req) {
       }
 
       if (platform === "google") {
-        // ---- 구글 리뷰 ----
+        // ---- 구글 리뷰 (구글 검색 스니펫 + 지식패널에서 추출) ----
         try {
           const reviews = [];
-
-          // 방법A: 구글맵 장소 페이지에서 리뷰 추출
-          const gSearchUrl = `https://www.google.com/maps/search/${encodeURIComponent(keyword + " " + targets.placeName)}?hl=ko`;
-          const gRes = await fetch(gSearchUrl, { headers: { "User-Agent": ua, "Accept-Language": "ko-KR" } });
-          const gHtml = await gRes.text();
-
-          // 구글맵 페이지 내 리뷰 텍스트 추출
-          const gRevPats = [
-            /"text"\s*:\s*"((?:[^"\\]|\\.){15,})"/g,
-            /class="[^"]*review[^"]*"[^>]*>([^<]{15,})<\//gi,
-            /data-review-id[^>]*>[\s\S]*?"((?:[^"\\]|\\.){15,})"/g,
-            /"snippet"\s*:\s*"((?:[^"\\]|\\.){15,})"/g,
-            /"comment"\s*:\s*"((?:[^"\\]|\\.){15,})"/g,
-          ];
           const seenTexts = new Set();
-          for (const p of gRevPats) {
-            let m;
-            while ((m = p.exec(gHtml)) !== null && reviews.length < 20) {
-              let text = m[1].replace(/<[^>]*>/g, "").replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\\u[\dA-Fa-f]{4}/g, c2 => String.fromCharCode(parseInt(c2.slice(2), 16))).trim();
-              if (text.length > 15 && !seenTexts.has(text.slice(0, 50))) {
-                seenTexts.add(text.slice(0, 50));
-                const s = analyzeSentiment(text);
-                reviews.push({ text: text.slice(0, 200), ...s });
-              }
+          const addReview = (text, source) => {
+            text = text.replace(/<[^>]*>/g, "").replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\\u[\dA-Fa-f]{4}/g, c2 => String.fromCharCode(parseInt(c2.slice(2), 16))).trim();
+            if (text.length > 20 && text.length < 500 && !seenTexts.has(text.slice(0, 40)) && reviews.length < 25) {
+              seenTexts.add(text.slice(0, 40));
+              const s = analyzeSentiment(text);
+              reviews.push({ text: text.slice(0, 200), source, ...s });
+            }
+          };
+
+          // 방법1: 구글 검색 (업체명 리뷰) - 리뷰 스니펫 추출
+          const q1 = `${targets.placeName} ${keyword} 리뷰 후기`;
+          const g1Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q1)}&hl=ko&gl=kr&num=20`, {
+            headers: { "User-Agent": ua, "Accept-Language": "ko-KR" }
+          });
+          const g1Html = await g1Res.text();
+
+          // 검색결과 스니펫에서 리뷰성 텍스트 추출
+          const snippetPats = [
+            /<span[^>]*class="[^"]*(?:st|aCOpRe|hgKElc|VwiC3b)[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+            /class="[^"]*BNeawe[^"]*"[^>]*>([\s\S]{30,300}?)<\//gi,
+            /data-content-feature="1"[^>]*>([\s\S]{30,300}?)<\//gi,
+          ];
+          for (const p of snippetPats) {
+            let m; while ((m = p.exec(g1Html)) !== null) {
+              addReview(m[1], "구글검색");
             }
           }
 
-          // 방법B: 구글 검색에서 리뷰 추출 (fallback)
-          if (reviews.length === 0) {
-            const g2Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(targets.placeName + " " + keyword + " 리뷰")}&hl=ko&gl=kr&num=10`, {
+          // 방법2: 구글 지식패널 리뷰 (별도 검색)
+          if (reviews.length < 5) {
+            const q2 = `"${targets.placeName}" 방문 리뷰`;
+            const g2Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q2)}&hl=ko&gl=kr&num=15`, {
               headers: { "User-Agent": ua, "Accept-Language": "ko-KR" }
             });
             const g2Html = await g2Res.text();
-            const g2Pats = [
-              /"text"\s*:\s*"((?:[^"\\]|\\.){15,})"/g,
-              /class="[^"]*(?:review|comment)[^"]*"[^>]*>([\s\S]{15,}?)<\//gi,
-            ];
-            for (const p of g2Pats) {
-              let m;
-              while ((m = p.exec(g2Html)) !== null && reviews.length < 20) {
-                const text = m[1].replace(/<[^>]*>/g, "").replace(/\\n/g, " ").trim();
-                if (text.length > 15 && !seenTexts.has(text.slice(0, 50))) {
-                  seenTexts.add(text.slice(0, 50));
-                  const s = analyzeSentiment(text);
-                  reviews.push({ text: text.slice(0, 200), ...s });
-                }
+            for (const p of snippetPats) {
+              p.lastIndex = 0;
+              let m; while ((m = p.exec(g2Html)) !== null) {
+                addReview(m[1], "구글검색2");
               }
             }
           }
 
+          // 리뷰성 텍스트만 필터 (너무 짧거나 메뉴/주소 등 제외)
+          const filtered = reviews.filter(r => {
+            const t = r.text;
+            if (t.includes("영업시간") || t.includes("전화번호") || t.match(/^\d{2,4}-\d{3,4}/)) return false;
+            if (t.split(" ").length < 5) return false;
+            return true;
+          });
+
           results.reviews = {
-            placeName: targets.placeName, platform: "google", reviews,
-            negCount: reviews.filter(r => r.sentiment === "negative").length,
-            _debug: { htmlLen: gHtml.length, method: reviews.length > 0 ? "maps" : "search_fallback" }
+            placeName: targets.placeName, platform: "google",
+            reviews: filtered.length > 0 ? filtered : reviews,
+            negCount: (filtered.length > 0 ? filtered : reviews).filter(r => r.sentiment === "negative").length,
+            _debug: { g1HtmlLen: g1Html.length, totalFound: reviews.length, filtered: filtered.length }
           };
         } catch (e) { results.reviews = { error: e.message, platform: "google" }; }
       }
@@ -387,84 +390,94 @@ export async function POST(req) {
         try {
           const kakaoKey = process.env.KAKAO_REST_API_KEY;
           const reviews = [];
-          let placeId = null;
           let debugInfo = { hasKey: !!kakaoKey };
 
           if (kakaoKey) {
-            // 1단계: 카카오 place ID 찾기
+            // 1단계: 카카오 place ID + 정보 찾기
             const kRes = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(keyword + " " + targets.placeName)}&size=1`, {
               headers: { "Authorization": `KakaoAK ${kakaoKey}` }
             });
             const kData = await kRes.json();
-            placeId = kData?.documents?.[0]?.id;
+            const place = kData?.documents?.[0];
+            const placeId = place?.id;
             debugInfo.placeId = placeId;
-            debugInfo.placeName = kData?.documents?.[0]?.place_name;
+            debugInfo.placeName = place?.place_name;
 
             if (placeId) {
-              // 방법A: place.map.kakao.com API
-              let fetchSuccess = false;
-
-              // 리뷰 목록 API (여러 endpoint 시도)
-              const reviewUrls = [
-                `https://place.map.kakao.com/m/commentlist/v/${placeId}`,
-                `https://place.map.kakao.com/commentlist/v/${placeId}`,
+              // 방법A: 카카오 place JSON API (여러 엔드포인트)
+              const endpoints = [
                 `https://place.map.kakao.com/main/v/${placeId}`,
+                `https://place.map.kakao.com/m/main/v/${placeId}`,
+                `https://place.map.kakao.com/commentlist/v/${placeId}`,
+                `https://place.map.kakao.com/m/commentlist/v/${placeId}`,
               ];
 
-              for (const rvUrl of reviewUrls) {
-                if (fetchSuccess) break;
+              for (const ep of endpoints) {
+                if (reviews.length > 0) break;
                 try {
-                  const rvRes = await fetch(rvUrl, {
-                    headers: { ...headers, "Accept": "application/json", "Referer": "https://place.map.kakao.com/" }
+                  const res = await fetch(ep, {
+                    headers: { ...headers, "Accept": "application/json, text/html", "Referer": "https://map.kakao.com/" }
                   });
-                  debugInfo["tried_" + rvUrl.split("/").slice(-2).join("/")] = rvRes.status;
-                  if (rvRes.ok) {
-                    const rvText = await rvRes.text();
-                    if (rvText.startsWith("{") || rvText.startsWith("[")) {
-                      const rvData = JSON.parse(rvText);
-                      // commentlist 응답
-                      const commentList = rvData?.comment?.list || rvData?.commentlist?.list || rvData?.list || [];
-                      for (const c of commentList) {
-                        const text = c.contents || c.content || c.body || c.comment || "";
-                        if (text.length > 5 && reviews.length < 30) {
-                          const s = analyzeSentiment(text);
-                          reviews.push({ text: text.slice(0, 200), author: c.username || c.nickname || "", ...s });
-                        }
-                      }
-                      // main 응답의 리뷰 섹션
-                      if (reviews.length === 0) {
-                        const mainComments = rvData?.comment?.list || rvData?.review?.list || rvData?.basicInfo?.comment?.list || [];
-                        for (const c of mainComments) {
-                          const text = c.contents || c.content || "";
-                          if (text.length > 5 && reviews.length < 30) {
-                            const s = analyzeSentiment(text);
-                            reviews.push({ text: text.slice(0, 200), ...s });
+                  const epKey = ep.split("kakao.com/")[1]?.slice(0, 30) || ep;
+                  debugInfo["ep_" + epKey] = res.status;
+                  if (res.ok) {
+                    const text = await res.text();
+                    if (text.length > 100 && (text.startsWith("{") || text.startsWith("["))) {
+                      try {
+                        const data = JSON.parse(text);
+                        // main API 응답에서 리뷰 추출
+                        const commentLists = [
+                          data?.comment?.list,
+                          data?.commentlist?.list,
+                          data?.review?.list,
+                          data?.basicInfo?.comment?.list,
+                          data?.list,
+                        ];
+                        for (const list of commentLists) {
+                          if (!Array.isArray(list)) continue;
+                          for (const c of list) {
+                            const body = c.contents || c.content || c.body || c.comment || c.text || "";
+                            if (body.length > 5 && reviews.length < 30) {
+                              const s = analyzeSentiment(body);
+                              reviews.push({ text: body.slice(0, 200), author: c.username || c.nickname || c.displayName || "", ...s });
+                            }
                           }
                         }
-                      }
-                      if (reviews.length > 0) fetchSuccess = true;
+                      } catch {}
                     }
                   }
                 } catch {}
               }
 
-              // 방법B: 카카오맵 웹페이지에서 리뷰 스크래핑
-              if (!fetchSuccess) {
+              // 방법B: 다음(Daum) 검색에서 카카오맵 리뷰 추출
+              if (reviews.length === 0) {
                 try {
-                  const webRes = await fetch(`https://place.map.kakao.com/${placeId}`, { headers });
-                  const webHtml = await webRes.text();
-                  debugInfo.webPageLen = webHtml.length;
-                  // JSON 데이터 추출
-                  const commentPat = /"contents"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-                  let cm;
-                  while ((cm = commentPat.exec(webHtml)) !== null && reviews.length < 30) {
-                    const text = cm[1].replace(/\\n/g, " ").replace(/\\"/g, '"').trim();
-                    if (text.length > 5) {
-                      const s = analyzeSentiment(text);
-                      reviews.push({ text: text.slice(0, 200), ...s });
+                  const daumRes = await fetch(`https://search.daum.net/search?w=tot&q=${encodeURIComponent(targets.placeName + " " + keyword + " 리뷰 후기")}`, {
+                    headers: { ...headers, "Accept": "text/html" }
+                  });
+                  const daumHtml = await daumRes.text();
+                  debugInfo.daumHtmlLen = daumHtml.length;
+
+                  // 다음 검색결과 스니펫에서 리뷰성 텍스트 추출
+                  const daumPats = [
+                    /<p[^>]*class="[^"]*desc[^"]*"[^>]*>([\s\S]*?)<\/p>/gi,
+                    /class="[^"]*txt_info[^"]*"[^>]*>([\s\S]{20,300}?)<\//gi,
+                    /class="[^"]*desc[^"]*"[^>]*>([\s\S]{20,300}?)<\//gi,
+                  ];
+                  const seenD = new Set();
+                  for (const p of daumPats) {
+                    let m; while ((m = p.exec(daumHtml)) !== null && reviews.length < 20) {
+                      const text = m[1].replace(/<[^>]*>/g, "").trim();
+                      if (text.length > 20 && !seenD.has(text.slice(0, 40))) {
+                        seenD.add(text.slice(0, 40));
+                        if (!text.includes("영업시간") && !text.match(/^\d{2,4}-/) && text.split(" ").length >= 4) {
+                          const s = analyzeSentiment(text);
+                          reviews.push({ text: text.slice(0, 200), source: "다음검색", ...s });
+                        }
+                      }
                     }
                   }
-                } catch {}
+                } catch (de) { debugInfo.daumError = de.message; }
               }
 
               debugInfo.reviewCount = reviews.length;
