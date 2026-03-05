@@ -321,46 +321,53 @@ export async function POST(req) {
       }
 
       if (platform === "google") {
-        // ---- 구글 리뷰 (구글 검색 스니펫 + 지식패널에서 추출) ----
+        // ---- 구글 리뷰 (기본 HTML 버전으로 요청) ----
         try {
           const reviews = [];
           const seenTexts = new Set();
+          // 간단한 UA로 기본 HTML 버전 요청
+          const simpleUA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
           const addReview = (text, source) => {
-            text = text.replace(/<[^>]*>/g, "").replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\\u[\dA-Fa-f]{4}/g, c2 => String.fromCharCode(parseInt(c2.slice(2), 16))).trim();
-            if (text.length > 20 && text.length < 500 && !seenTexts.has(text.slice(0, 40)) && reviews.length < 25) {
+            text = text.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\\n/g, " ").trim();
+            if (text.length > 25 && text.length < 500 && !seenTexts.has(text.slice(0, 40)) && reviews.length < 25) {
+              // 코드/스크립트 필터
+              if (text.includes("function") || text.includes("var ") || text.includes("==") || text.includes("&&")) return;
               seenTexts.add(text.slice(0, 40));
               const s = analyzeSentiment(text);
               reviews.push({ text: text.slice(0, 200), source, ...s });
             }
           };
 
-          // 방법1: 구글 검색 (업체명 리뷰) - 리뷰 스니펫 추출
+          // gbv=1: 기본 HTML 버전 (JavaScript 렌더링 없는 버전)
           const q1 = `${targets.placeName} ${keyword} 리뷰 후기`;
-          const g1Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q1)}&hl=ko&gl=kr&num=20`, {
-            headers: { "User-Agent": ua, "Accept-Language": "ko-KR" }
+          const g1Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q1)}&hl=ko&gl=kr&num=20&gbv=1`, {
+            headers: { "User-Agent": simpleUA, "Accept": "text/html", "Accept-Language": "ko-KR" }
           });
           const g1Html = await g1Res.text();
 
-          // 검색결과 스니펫에서 리뷰성 텍스트 추출
-          const snippetPats = [
-            /<span[^>]*class="[^"]*(?:st|aCOpRe|hgKElc|VwiC3b)[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
-            /class="[^"]*BNeawe[^"]*"[^>]*>([\s\S]{30,300}?)<\//gi,
-            /data-content-feature="1"[^>]*>([\s\S]{30,300}?)<\//gi,
+          // 기본 HTML 스니펫 패턴들
+          const pats = [
+            // gbv=1 기본 HTML 스니펫
+            /<span[^>]*>([\uAC00-\uD7A3][\s\S]{25,250}?)<\/span>/gi,
+            /<div[^>]*>([\uAC00-\uD7A3][\s\S]{25,250}?)<\/div>/gi,
+            /<td[^>]*>([\uAC00-\uD7A3][\s\S]{25,250}?)<\/td>/gi,
+            // 일반 텍스트 노드 (한글 시작)
+            />([\uAC00-\uD7A3][^<]{25,250})</g,
           ];
-          for (const p of snippetPats) {
+          for (const p of pats) {
             let m; while ((m = p.exec(g1Html)) !== null) {
               addReview(m[1], "구글검색");
             }
           }
 
-          // 방법2: 구글 지식패널 리뷰 (별도 검색)
-          if (reviews.length < 5) {
-            const q2 = `"${targets.placeName}" 방문 리뷰`;
-            const g2Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q2)}&hl=ko&gl=kr&num=15`, {
-              headers: { "User-Agent": ua, "Accept-Language": "ko-KR" }
+          // 2차: 다른 검색어로 시도
+          if (reviews.length < 3) {
+            const q2 = `"${targets.placeName}" 후기`;
+            const g2Res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(q2)}&hl=ko&gl=kr&num=15&gbv=1`, {
+              headers: { "User-Agent": simpleUA, "Accept": "text/html", "Accept-Language": "ko-KR" }
             });
             const g2Html = await g2Res.text();
-            for (const p of snippetPats) {
+            for (const p of pats) {
               p.lastIndex = 0;
               let m; while ((m = p.exec(g2Html)) !== null) {
                 addReview(m[1], "구글검색2");
@@ -368,11 +375,12 @@ export async function POST(req) {
             }
           }
 
-          // 리뷰성 텍스트만 필터 (너무 짧거나 메뉴/주소 등 제외)
+          // 리뷰성 필터 (메뉴/주소/전화번호 등 제외)
           const filtered = reviews.filter(r => {
             const t = r.text;
             if (t.includes("영업시간") || t.includes("전화번호") || t.match(/^\d{2,4}-\d{3,4}/)) return false;
-            if (t.split(" ").length < 5) return false;
+            if (t.includes("검색결과") || t.includes("로그인") || t.includes("계정")) return false;
+            if (t.split(" ").length < 4) return false;
             return true;
           });
 
@@ -381,26 +389,13 @@ export async function POST(req) {
             reviews: filtered.length > 0 ? filtered : reviews,
             negCount: (filtered.length > 0 ? filtered : reviews).filter(r => r.sentiment === "negative").length,
             _debug: { g1HtmlLen: g1Html.length, totalFound: reviews.length, filtered: filtered.length,
-              // HTML 클래스 패턴 샘플
-              classes: (() => {
-                const cls = [];
-                const cRe = /class="([^"]{5,60})"/g;
-                let cm; while ((cm = cRe.exec(g1Html)) !== null && cls.length < 20) {
-                  if (!cls.includes(cm[1])) cls.push(cm[1]);
-                }
-                return cls;
-              })(),
-              // 텍스트 노드 샘플 (30자 이상)
-              textSamples: (() => {
-                const samples = [];
-                const tRe = />([^<]{30,200})</g;
-                let tm; while ((tm = tRe.exec(g1Html)) !== null && samples.length < 8) {
-                  const t = tm[1].trim();
-                  if (t.length > 30 && !t.includes("{") && !t.includes("function")) samples.push(t.slice(0, 100));
-                }
-                return samples;
-              })(),
-              htmlSnippet: g1Html.slice(Math.floor(g1Html.length * 0.3), Math.floor(g1Html.length * 0.3) + 500)
+              hasKorean: /[\uAC00-\uD7A3]/.test(g1Html),
+              sampleTexts: (() => {
+                const s = [];
+                const re = />([\uAC00-\uD7A3][^<]{20,150})</g;
+                let m; while ((m = re.exec(g1Html)) !== null && s.length < 5) s.push(m[1].trim().slice(0, 80));
+                return s;
+              })()
             }
           };
         } catch (e) { results.reviews = { error: e.message, platform: "google" }; }
