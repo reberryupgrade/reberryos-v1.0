@@ -380,7 +380,28 @@ export async function POST(req) {
             placeName: targets.placeName, platform: "google",
             reviews: filtered.length > 0 ? filtered : reviews,
             negCount: (filtered.length > 0 ? filtered : reviews).filter(r => r.sentiment === "negative").length,
-            _debug: { g1HtmlLen: g1Html.length, totalFound: reviews.length, filtered: filtered.length }
+            _debug: { g1HtmlLen: g1Html.length, totalFound: reviews.length, filtered: filtered.length,
+              // HTML 클래스 패턴 샘플
+              classes: (() => {
+                const cls = [];
+                const cRe = /class="([^"]{5,60})"/g;
+                let cm; while ((cm = cRe.exec(g1Html)) !== null && cls.length < 20) {
+                  if (!cls.includes(cm[1])) cls.push(cm[1]);
+                }
+                return cls;
+              })(),
+              // 텍스트 노드 샘플 (30자 이상)
+              textSamples: (() => {
+                const samples = [];
+                const tRe = />([^<]{30,200})</g;
+                let tm; while ((tm = tRe.exec(g1Html)) !== null && samples.length < 8) {
+                  const t = tm[1].trim();
+                  if (t.length > 30 && !t.includes("{") && !t.includes("function")) samples.push(t.slice(0, 100));
+                }
+                return samples;
+              })(),
+              htmlSnippet: g1Html.slice(Math.floor(g1Html.length * 0.3), Math.floor(g1Html.length * 0.3) + 500)
+            }
           };
         } catch (e) { results.reviews = { error: e.message, platform: "google" }; }
       }
