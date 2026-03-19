@@ -117,55 +117,63 @@ export async function POST(req) {
         tabOrderResult: tabOrder
       };
 
-      // ---- 플레이스 ----
+      // ---- 플레이스 (네이버 플레이스 전용 검색) ----
       const placeTitles = [];
       let placeDebugMethod = "none";
-
-      // 방법1: 스크립트 내부 JSON에서 업체명 추출 (해외 서버 핵심 방법)
-      // 네이버 검색 HTML에는 플레이스 데이터가 JS 변수/JSON으로 포함됨
       {
-        const jsonPats = [
-          /"name"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-          /"title"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-          /"placeName"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-          /"shopName"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-          /"display"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-        ];
-        // nmb_hpl 섹션(플레이스) 이후의 스크립트에서만 추출
-        const nmbIdx = mainHtml.indexOf("nmb_hpl");
-        const searchArea = nmbIdx >= 0 ? mainHtml.slice(nmbIdx, nmbIdx + 50000) : mainHtml.slice(0, 100000);
-        const excludeWords = ["관련도순","최신순","옵션","더보기","지도","플레이스","전체","블로그","카페","뉴스","이미지","동영상","쇼핑","파워링크","검색","네이버","설정","로그인","메뉴"];
-        for (const p of jsonPats) {
-          let m; while ((m = p.exec(searchArea)) !== null && placeTitles.length < 15) {
-            const t = m[1].trim();
-            if (t.length > 1 && t.length < 45 && !placeTitles.includes(t) && !excludeWords.some(w => t === w || t.includes(w))) {
-              placeTitles.push(t);
+        // 방법1: 네이버 플레이스 검색 (where=place) - 별도 요청
+        try {
+          const placeRes = await fetch(`https://search.naver.com/search.naver?where=place&query=${encoded}`, { headers });
+          const placeHtml = await placeRes.text();
+
+          // 플레이스 검색결과에서 업체명 추출
+          const placePats = [
+            /class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs,
+            /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs,
+            /class="[^"]*TYaxT[^"]*"[^>]*>(.*?)<\//gs,
+            /class="[^"]*tit[^"]*"[^>]*>([\uAC00-\uD7A3][^<]{1,40})<\//gs,
+            /"name"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
+            /"title"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
+            /"placeName"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
+          ];
+          const excludeWords = ["관련도순","최신순","옵션","더보기","지도","플레이스","전체","블로그","카페","뉴스","이미지","동영상","쇼핑","파워링크","검색","네이버","설정","로그인","메뉴","정확도순","거리순"];
+          for (const p of placePats) {
+            let m; while ((m = p.exec(placeHtml)) !== null && placeTitles.length < 15) {
+              const t = m[1].replace(/<[^>]*>/g,"").trim();
+              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) {
+                placeTitles.push(t);
+              }
             }
           }
-        }
-        if (placeTitles.length > 0) placeDebugMethod = "json_script";
-      }
 
-      // 방법2: HTML 태그에서 추출 (한국 서버에서는 이게 동작)
-      if (placeTitles.length === 0) {
-        const pPats = [
-          /class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs,
-          /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs,
-          /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs,
-          /class="[^"]*TYaxT[^"]*"[^>]*>(.*?)<\//gs,
-        ];
-        for (const p of pPats) { let m; while ((m = p.exec(mainHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<50 && !placeTitles.includes(t)) placeTitles.push(t); } }
-        if (placeTitles.length > 0) placeDebugMethod = "html_class";
-      }
+          // 방법1b: place.naver.com 링크의 업체명 추출
+          if (placeTitles.length === 0) {
+            const linkPat = /place\.naver\.com\/[^"]*"[^>]*>([^<]{2,40})<\//g;
+            let lm; while ((lm = linkPat.exec(placeHtml)) !== null && placeTitles.length < 15) {
+              const t = lm[1].trim();
+              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) placeTitles.push(t);
+            }
+          }
 
-      // 방법3: place.naver.com 링크 URL에서 ID 추출 후 이름 매칭
-      if (placeTitles.length === 0) {
-        const placeUrlRe = /place\.naver\.com\/(?:restaurant|place|hospital|beauty)\/(\d+)[^"]*"[^>]*>([\s\S]*?)<\//g;
-        let pu; while ((pu = placeUrlRe.exec(mainHtml)) !== null && placeTitles.length < 15) {
-          const t = pu[2].replace(/<[^>]*>/g,"").trim();
-          if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t)) placeTitles.push(t);
+          // 방법1c: 한글 링크 텍스트 추출 (넓은 범위)
+          if (placeTitles.length === 0) {
+            const aRe = /<a[^>]+href="[^"]*(?:place|local)[^"]*"[^>]*>([\uAC00-\uD7A3][^<]{1,40})<\/a>/g;
+            let am; while ((am = aRe.exec(placeHtml)) !== null && placeTitles.length < 15) {
+              const t = am[1].trim();
+              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) placeTitles.push(t);
+            }
+          }
+
+          if (placeTitles.length > 0) placeDebugMethod = "place_search";
+          else placeDebugMethod = "place_search_empty(" + placeHtml.length + ")";
+        } catch (pe) { placeDebugMethod = "place_search_error:" + pe.message; }
+
+        // 방법2: HTML 태그 (한국 서버에서 동작)
+        if (placeTitles.length === 0) {
+          const pPats = [/class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs];
+          for (const p of pPats) { let m; while ((m = p.exec(mainHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<50 && !placeTitles.includes(t)) placeTitles.push(t); } }
+          if (placeTitles.length > 0) placeDebugMethod = "html_class";
         }
-        if (placeTitles.length > 0) placeDebugMethod = "place_url";
       }
 
       results.place = { titles: placeTitles.slice(0,10) };
@@ -175,21 +183,7 @@ export async function POST(req) {
         if (i < 0) i = placeTitles.findIndex(t => pn.includes(tl(t)));
         if (i < 0) { const pnNS = pn.replace(/\s/g,""); i = placeTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNS) || pnNS.includes(tl(t).replace(/\s/g,""))); }
         results.place.rank = i >= 0 ? i + 1 : null;
-        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i, method: placeDebugMethod,
-          // 플레이스 섹션 HTML 샘플 (nmb_hpl 주변)
-          htmlSamples: (() => {
-            const samples = [];
-            const nmbIdx = mainHtml.indexOf("nmb_hpl");
-            if (nmbIdx >= 0) {
-              // nmb_hpl 이후 여러 지점에서 샘플 추출
-              for (const offset of [500, 2000, 5000, 10000, 20000]) {
-                const chunk = mainHtml.slice(nmbIdx + offset, nmbIdx + offset + 300);
-                samples.push({ offset, text: chunk.replace(/</g, "[").replace(/>/g, "]").slice(0, 200) });
-              }
-            }
-            return samples;
-          })()
-        };
+        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i, method: placeDebugMethod };
       }
 
       // ---- 뉴스 ----
