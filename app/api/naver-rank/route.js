@@ -132,15 +132,45 @@ export async function POST(req) {
       ];
       for (const p of pPats) { let m; while ((m = p.exec(mainHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<50 && !placeTitles.includes(t)) placeTitles.push(t); } }
 
-      // 백업: 플레이스 섹션 내부의 모든 링크 텍스트 추출
+      // 백업1: 플레이스 섹션 영역 찾아서 링크 텍스트 추출
+      let placeSectionSample = "";
       if (placeTitles.length === 0) {
-        const placeSecStart = mainHtml.search(/플레이스|place_bluelink|LocalInfo|nmb_hplw/i);
+        // nmb_ 는 네이버 플레이스 섹션 코드
+        const markers = ["nmb_hpl", "플레이스", "place_bluelink", "LocalInfo", "place.map.naver"];
+        let placeSecStart = -1;
+        for (const mk of markers) {
+          const idx = mainHtml.indexOf(mk);
+          if (idx >= 0 && (placeSecStart < 0 || idx < placeSecStart)) placeSecStart = idx;
+        }
         if (placeSecStart >= 0) {
-          const placeSec = mainHtml.slice(placeSecStart, placeSecStart + 5000);
+          // 섹션 시작점에서 뒤로 200자, 앞으로 8000자 범위
+          const secStart = Math.max(0, placeSecStart - 200);
+          const placeSec = mainHtml.slice(secStart, secStart + 8000);
+          placeSectionSample = placeSec.slice(0, 800);
+
+          // 한글로 시작하는 링크 텍스트 추출 (업체명)
           const linkRe = /<a[^>]*>([\uAC00-\uD7A3][^<]{2,40})<\/a>/g;
-          let lm; while ((lm = linkRe.exec(placeSec)) !== null && placeTitles.length < 10) {
+          let lm; while ((lm = linkRe.exec(placeSec)) !== null && placeTitles.length < 15) {
             const t = lm[1].replace(/<[^>]*>/g,"").trim();
-            if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t)) placeTitles.push(t);
+            if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !t.includes("더보기") && !t.includes("지도")) placeTitles.push(t);
+          }
+
+          // 한글로 시작하는 span/strong/b 텍스트도 추출
+          if (placeTitles.length === 0) {
+            const txtRe = /<(?:span|strong|b|em)[^>]*>([\uAC00-\uD7A3][^<]{2,40})<\/(?:span|strong|b|em)>/g;
+            while ((lm = txtRe.exec(placeSec)) !== null && placeTitles.length < 15) {
+              const t = lm[1].trim();
+              if (t && t.length > 2 && t.length < 50 && !placeTitles.includes(t) && !t.includes("더보기") && !t.includes("지도") && !t.includes("플레이스")) placeTitles.push(t);
+            }
+          }
+
+          // 최후: place.naver.com 링크의 텍스트 추출
+          if (placeTitles.length === 0) {
+            const placeLink = /place\.naver\.com[^"]*"[^>]*>([\uAC00-\uD7A3][^<]{2,40})<\//g;
+            while ((lm = placeLink.exec(placeSec)) !== null && placeTitles.length < 15) {
+              const t = lm[1].trim();
+              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t)) placeTitles.push(t);
+            }
           }
         }
       }
@@ -152,7 +182,7 @@ export async function POST(req) {
         if (i < 0) i = placeTitles.findIndex(t => pn.includes(tl(t)));
         if (i < 0) { const pnNS = pn.replace(/\s/g,""); i = placeTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNS) || pnNS.includes(tl(t).replace(/\s/g,""))); }
         results.place.rank = i >= 0 ? i + 1 : null;
-        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i };
+        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i, placeSectionFound: placeSectionSample.length > 0, placeSectionSample: placeSectionSample.slice(0, 500) };
       }
 
       // ---- 뉴스 ----
