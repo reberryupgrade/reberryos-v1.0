@@ -1176,9 +1176,38 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
     reader.onload=ev=>{const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
-      const nk=rows.slice(1).filter(r=>r[0]).map((r,i)=>({id:Date.now()+i,keyword:r[0]||"",tabOrder:[...TAB_TYPES],myBlogRank:r[1]||"-",myPlaceRank:r[2]||"-",status:"warn"}));
-      upd("keywords",[...data.keywords,...nk]);};
+      const nk=rows.slice(1).filter(r=>r[0]).map((r,i)=>({id:Date.now()+i,keyword:String(r[0]).trim(),tabOrder:[...TAB_TYPES],myBlogRank:r[1]||"-",myPlaceRank:r[2]||"-",status:"warn"}));
+      upd("keywords",[...data.keywords,...nk]);alert(`${nk.length}개 키워드 추가 완료`);};
     reader.readAsBinaryString(file);e.target.value="";
+  };
+  const handleGoogleSheet=async()=>{
+    const url=prompt("구글시트 링크를 붙여넣으세요:\n\n※ 시트가 '링크가 있는 모든 사용자에게 공개'로 설정되어야 합니다.\n※ A열: 키워드 (필수), B열: 블로그순위, C열: 플레이스순위, D열: 월검색량\n※ 1행은 헤더로 건너뜁니다.");
+    if(!url)return;
+    const idMatch=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if(!idMatch){alert("유효한 구글시트 URL이 아닙니다.\n예: https://docs.google.com/spreadsheets/d/1abc.../edit");return;}
+    const sheetId=idMatch[1];
+    const gidMatch=url.match(/gid=(\d+)/);
+    const gid=gidMatch?gidMatch[1]:"0";
+    const csvUrl=`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    try{
+      setRankLoading("gsheet");
+      const res=await fetch(csvUrl);
+      if(!res.ok)throw new Error(`시트 접근 실패 (${res.status}). 공유 설정을 확인하세요.`);
+      const text=await res.text();
+      const lines=text.split("\n").map(l=>{
+        const cells=[];let cur="",inQ=false;
+        for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){inQ=!inQ;}else if(c===","&&!inQ){cells.push(cur.trim());cur="";}else{cur+=c;}}
+        cells.push(cur.trim());return cells;
+      });
+      const nk=lines.slice(1).filter(r=>r[0]&&r[0].length>0).map((r,i)=>({
+        id:Date.now()+i,keyword:r[0].replace(/^"|"$/g,"").trim(),tabOrder:[...TAB_TYPES],
+        myBlogRank:r[1]||"-",myPlaceRank:r[2]||"-",monthlySearch:r[3]?parseInt(r[3]):null,status:"warn"
+      }));
+      if(nk.length===0){alert("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
+      upd("keywords",[...data.keywords,...nk]);
+      alert(`✅ ${nk.length}개 키워드 추가 완료!`);
+    }catch(e){alert("구글시트 불러오기 실패: "+e.message);}
+    setRankLoading(null);
   };
   const callAI=async()=>{
     if(!aiRegion)return alert("지역을 입력해주세요.");
@@ -1766,6 +1795,8 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                   <Btn color="#8b5cf6" onClick={()=>setModal("aiKw")}>🤖 AI 제안</Btn>
                   <Btn color="#f59e0b" onClick={()=>fileRef.current.click()}>📂 엑셀</Btn>
                   <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcel}/>
+                  <Btn color="#34a853" onClick={handleGoogleSheet} disabled={rankLoading==="gsheet"}>{rankLoading==="gsheet"?"⏳":"📊"} 구글시트</Btn>
+                  <Btn color="#334155" onClick={()=>setModal("sheetGuide")} style={{padding:"5px 10px",fontSize:11,color:"#94a3b8"}}>❓ 양식</Btn>
                   <Btn onClick={()=>setModal("kw")}>+ 추가</Btn>
                 </div>
               </div>
@@ -1958,6 +1989,58 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                       );
                     })}
                     <div style={{color:"#475569",fontSize:11,marginTop:10}}>조회일시: {modal.item.lastRankCheck||"-"}</div>
+                  </div>
+                </Modal>
+              )}
+              {modal==="sheetGuide"&&(
+                <Modal title="📊 키워드 업로드 양식 가이드" onClose={()=>setModal(null)}>
+                  <div style={{maxHeight:"65vh",overflowY:"auto",lineHeight:"1.8"}}>
+                    <div style={{background:"#0f172a",borderRadius:10,padding:"16px 20px",marginBottom:16,border:"1px solid #334155"}}>
+                      <div style={{color:"#10b981",fontWeight:800,fontSize:14,marginBottom:10}}>📂 엑셀 파일 (.xlsx)</div>
+                      <div style={{color:"#e2e8f0",fontSize:13}}>엑셀 파일을 직접 업로드합니다. 같은 양식을 사용합니다.</div>
+                    </div>
+                    <div style={{background:"#0f172a",borderRadius:10,padding:"16px 20px",marginBottom:16,border:"1px solid #34a853"}}>
+                      <div style={{color:"#34a853",fontWeight:800,fontSize:14,marginBottom:10}}>📊 구글시트 연동</div>
+                      <div style={{color:"#e2e8f0",fontSize:13,marginBottom:8}}>구글시트 링크를 붙여넣으면 자동으로 키워드를 불러옵니다.</div>
+                      <div style={{color:"#f59e0b",fontSize:12,fontWeight:700,marginBottom:6}}>⚠️ 시트 공유 설정 필수:</div>
+                      <div style={{color:"#94a3b8",fontSize:12,paddingLeft:12}}>시트 → 공유 → '링크가 있는 모든 사용자' → '뷰어'로 설정</div>
+                    </div>
+                    <div style={{background:"#1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+                      <div style={{color:"#06b6d4",fontWeight:800,fontSize:14,marginBottom:12}}>📋 시트 양식 (공통)</div>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                        <thead><tr style={{borderBottom:"2px solid #334155"}}>
+                          <th style={{padding:"8px 12px",textAlign:"left",color:"#10b981",fontWeight:700}}>열</th>
+                          <th style={{padding:"8px 12px",textAlign:"left",color:"#10b981",fontWeight:700}}>내용</th>
+                          <th style={{padding:"8px 12px",textAlign:"left",color:"#10b981",fontWeight:700}}>필수</th>
+                          <th style={{padding:"8px 12px",textAlign:"left",color:"#10b981",fontWeight:700}}>예시</th>
+                        </tr></thead>
+                        <tbody>
+                          {[
+                            ["A","키워드","✅ 필수","강남 피부과"],
+                            ["B","블로그 순위","선택","3위"],
+                            ["C","플레이스 순위","선택","1위"],
+                            ["D","월 검색량","선택","12000"],
+                          ].map(([col,desc,req,ex],i)=>(
+                            <tr key={i} style={{borderBottom:"1px solid #1e293b"}}>
+                              <td style={{padding:"8px 12px",color:"#f59e0b",fontWeight:700}}>{col}</td>
+                              <td style={{padding:"8px 12px",color:"#e2e8f0"}}>{desc}</td>
+                              <td style={{padding:"8px 12px",color:req.includes("필수")?"#10b981":"#475569"}}>{req}</td>
+                              <td style={{padding:"8px 12px",color:"#94a3b8",fontFamily:"monospace"}}>{ex}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{background:"#0f172a",borderRadius:10,padding:"16px 20px",border:"1px solid #334155"}}>
+                      <div style={{color:"#8b5cf6",fontWeight:800,fontSize:14,marginBottom:10}}>📝 예시</div>
+                      <div style={{background:"#020617",borderRadius:8,padding:"12px 16px",fontFamily:"monospace",fontSize:12,color:"#94a3b8",lineHeight:"1.8"}}>
+                        <div><span style={{color:"#475569"}}>1행:</span> <span style={{color:"#f59e0b"}}>키워드</span> | <span style={{color:"#f59e0b"}}>블로그순위</span> | <span style={{color:"#f59e0b"}}>플레이스순위</span> | <span style={{color:"#f59e0b"}}>월검색량</span></div>
+                        <div><span style={{color:"#475569"}}>2행:</span> 강남 피부과 | 3위 | 1위 | 12000</div>
+                        <div><span style={{color:"#475569"}}>3행:</span> 강남 보톡스 | - | - | 8500</div>
+                        <div><span style={{color:"#475569"}}>4행:</span> 신논현 피부과 | | | 3200</div>
+                      </div>
+                      <div style={{color:"#64748b",fontSize:11,marginTop:8}}>※ 1행(헤더)은 자동으로 건너뜁니다. A열만 있어도 됩니다.</div>
+                    </div>
                   </div>
                 </Modal>
               )}
