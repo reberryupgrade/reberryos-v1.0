@@ -1050,17 +1050,26 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
   const checkAllRanks=async()=>{
     const targets=dataRef.current.rankTargets||{};
     if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요");return;}
+    const kws=[...dataRef.current.keywords];
+    if(!kws.length)return;
     setRankLoading("all");
-    for(const kw of dataRef.current.keywords){
-      try{
-        const d=await fetchRankData(kw.keyword,targets);
-        if(!d.error){
+    const BATCH=3;
+    let done=0;
+    for(let i=0;i<kws.length;i+=BATCH){
+      const batch=kws.slice(i,i+BATCH);
+      const results=await Promise.allSettled(batch.map(kw=>fetchRankData(kw.keyword,targets).then(d=>({kw,d})).catch(e=>({kw,d:{error:e.message}}))));
+      let cur=dataRef.current.keywords;
+      for(const r of results){
+        if(r.status==="fulfilled"&&!r.value.d.error){
+          const{kw,d}=r.value;
           const updates=applyRankResult(kw.id,d);
-          const cur=dataRef.current.keywords.map(k=>k.id===kw.id?{...k,...updates}:k);
-          upd("keywords",cur);
+          cur=cur.map(k=>k.id===kw.id?{...k,...updates}:k);
         }
-      }catch(e){console.error(e);}
-      await new Promise(r=>setTimeout(r,1500));
+        done++;
+      }
+      upd("keywords",cur);
+      setRankLoading(`all:${done}/${kws.length}`);
+      if(i+BATCH<kws.length)await new Promise(r=>setTimeout(r,500));
     }
     setRankLoading(null);
   };
@@ -1090,10 +1099,36 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
   const checkAllMapRanks=async()=>{
     const targets=dataRef.current.rankTargets||{};
     if(!targets.placeName){alert("먼저 업체명을 설정해주세요");return;}
+    const maps=[...dataRef.current.maps];
+    if(!maps.length)return;
     setRankLoading("allMaps");
-    for(const m of dataRef.current.maps){
-      await checkMapRank(m);
-      await new Promise(r=>setTimeout(r,1500));
+    const BATCH=3;
+    let done=0;
+    for(let i=0;i<maps.length;i+=BATCH){
+      const batch=maps.slice(i,i+BATCH);
+      const results=await Promise.allSettled(batch.map(m=>fetchRankData(m.keyword,targets).then(d=>({m,d})).catch(e=>({m,d:{error:e.message}}))));
+      let cur=dataRef.current.maps;
+      for(const res of results){
+        if(res.status==="fulfilled"&&!res.value.d.error){
+          const{m,d}=res.value;
+          const r=d.results||{};
+          const updates={lastRankCheck:today()};
+          if(r.place?.rank)updates.naverPlace=r.place.rank+"위";
+          else if(r.place?.titles?.length)updates.naverPlace="미노출";
+          if(r.googleMap?.rank)updates.google=r.googleMap.rank+"위";
+          else if(r.googleMap?.titles?.length)updates.google="미노출";
+          if(r.kakaoMap?.rank)updates.kakao=r.kakaoMap.rank+"위";
+          else if(r.kakaoMap?.titles?.length)updates.kakao="미노출";
+          updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
+          const rn=parseInt(updates.naverPlace)||99;const rg=parseInt(updates.google)||99;const rk=parseInt(updates.kakao)||99;
+          const best=Math.min(rn,rg,rk);updates.status=best<=3?"good":best<=5?"warn":"danger";
+          cur=cur.map(x=>x.id===m.id?{...x,...updates}:x);
+        }
+        done++;
+      }
+      upd("maps",cur);
+      setRankLoading(`allMaps:${done}/${maps.length}`);
+      if(i+BATCH<maps.length)await new Promise(r=>setTimeout(r,500));
     }
     setRankLoading(null);
   };
@@ -1826,7 +1861,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                 <div style={{fontWeight:700,fontSize:15}}>네이버 키워드</div>
                 <div style={{display:"flex",gap:8}}>
                   <Btn color="#10b981" onClick={()=>checkAllRanks()} disabled={!!rankLoading}>
-                    {rankLoading?"⏳ 조회중...":"🔍 전체 순위 조회"}
+                    {rankLoading&&String(rankLoading).startsWith("all:")?`⏳ ${rankLoading.split(":")[1]}`:rankLoading==="all"?"⏳ 준비중...":"🔍 전체 순위 조회"}
                   </Btn>
                   <Btn color="#8b5cf6" onClick={()=>setModal("aiKw")}>🤖 AI 제안</Btn>
                   <Btn color="#f59e0b" onClick={()=>fileRef.current.click()}>📂 엑셀</Btn>
@@ -2093,7 +2128,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* MAPS */}
           {tab==="maps"&&(
-            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6,flexWrap:"wrap"}}><Btn color="#f59e0b" onClick={()=>runApiDiag()} disabled={rankLoading==="diag"}>{rankLoading==="diag"?"⏳":"🔧 API 진단"}</Btn><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn color="#f59e0b" onClick={()=>mapFileRef.current.click()}>📂 엑셀</Btn><input ref={mapFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleMapExcel}/><Btn color="#34a853" onClick={handleMapGoogleSheet} disabled={rankLoading==="gsheetMap"}>{rankLoading==="gsheetMap"?"⏳":"📊"} 구글시트</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
+            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6,flexWrap:"wrap"}}><Btn color="#f59e0b" onClick={()=>runApiDiag()} disabled={rankLoading==="diag"}>{rankLoading==="diag"?"⏳":"🔧 API 진단"}</Btn><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{String(rankLoading).startsWith("allMaps:")?"⏳ "+rankLoading.split(":")[1]:rankLoading==="allMaps"?"⏳ 준비중...":"🔍 전체 조회"}</Btn><Btn color="#f59e0b" onClick={()=>mapFileRef.current.click()}>📂 엑셀</Btn><input ref={mapFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleMapExcel}/><Btn color="#34a853" onClick={handleMapGoogleSheet} disabled={rankLoading==="gsheetMap"}>{rankLoading==="gsheetMap"?"⏳":"📊"} 구글시트</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
               <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",marginBottom:14,border:"1px solid #334155"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                   <div style={{fontWeight:700,fontSize:13,color:"#10b981"}}>🎯 내 콘텐츠 식별자</div>
