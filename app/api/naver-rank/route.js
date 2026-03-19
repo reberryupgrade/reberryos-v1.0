@@ -159,8 +159,10 @@ export async function POST(req) {
               const ldRe = /"name"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g;
               let lm; while ((lm = ldRe.exec(placeHtml)) !== null && placeTitles.length < 15) {
                 const t = lm[1].trim();
-                const exclude = ["정렬","기간","병점","더보기","플레이스","네이버","검색"];
-                if (t.length > 2 && !placeTitles.includes(t) && !exclude.some(w => t === w)) placeTitles.push(t);
+                const exclude = ["정렬","기간","더보기","플레이스","네이버","검색","네이버TV","옵션"];
+                // 검색 키워드 자체와 짧은 카테고리명(~과, ~의학과 등) 제외
+                const isCategory = (t) => /^[가-힣]{2,6}(과|의학과|의원|학과|센터)$/.test(t) && t.length < 8;
+                if (t.length > 2 && !placeTitles.includes(t) && !exclude.some(w => t === w) && !isCategory(t) && tl(t) !== tl(keyword)) placeTitles.push(t);
               }
             }
             if (placeTitles.length > 0) placeDebugMethod = "place_page";
