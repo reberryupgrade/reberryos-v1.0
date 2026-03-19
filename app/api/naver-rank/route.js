@@ -152,7 +152,7 @@ export async function POST(req) {
         if (i < 0) i = placeTitles.findIndex(t => pn.includes(tl(t)));
         if (i < 0) { const pnNS = pn.replace(/\s/g,""); i = placeTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNS) || pnNS.includes(tl(t).replace(/\s/g,""))); }
         results.place.rank = i >= 0 ? i + 1 : null;
-        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, matched: i >= 0, matchIndex: i };
+        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i };
       }
 
       // ---- 뉴스 ----
