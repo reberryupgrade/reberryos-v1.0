@@ -175,7 +175,21 @@ export async function POST(req) {
         if (i < 0) i = placeTitles.findIndex(t => pn.includes(tl(t)));
         if (i < 0) { const pnNS = pn.replace(/\s/g,""); i = placeTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNS) || pnNS.includes(tl(t).replace(/\s/g,""))); }
         results.place.rank = i >= 0 ? i + 1 : null;
-        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i, method: placeDebugMethod };
+        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, titles: placeTitles.slice(0, 10), matched: i >= 0, matchIndex: i, method: placeDebugMethod,
+          // 플레이스 섹션 HTML 샘플 (nmb_hpl 주변)
+          htmlSamples: (() => {
+            const samples = [];
+            const nmbIdx = mainHtml.indexOf("nmb_hpl");
+            if (nmbIdx >= 0) {
+              // nmb_hpl 이후 여러 지점에서 샘플 추출
+              for (const offset of [500, 2000, 5000, 10000, 20000]) {
+                const chunk = mainHtml.slice(nmbIdx + offset, nmbIdx + offset + 300);
+                samples.push({ offset, text: chunk.replace(/</g, "[").replace(/>/g, "]").slice(0, 200) });
+              }
+            }
+            return samples;
+          })()
+        };
       }
 
       // ---- 뉴스 ----
