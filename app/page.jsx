@@ -988,6 +988,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
   const[calTab,setCalTab]=useState("calendar");
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return{y:n.getFullYear(),m:n.getMonth()};});
   const fileRef=useRef();
+  const mapFileRef=useRef();
 
   const upd=(k,v)=>setData(d=>({...d,[k]:v}));
   const updN=(o,k,v)=>setData(d=>({...d,[o]:{...d[o],[k]:v}}));
@@ -1206,6 +1207,41 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
       if(nk.length===0){alert("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
       upd("keywords",[...data.keywords,...nk]);
       alert(`✅ ${nk.length}개 키워드 추가 완료!`);
+    }catch(e){alert("구글시트 불러오기 실패: "+e.message);}
+    setRankLoading(null);
+  };
+  const handleMapExcel=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+      const nm=rows.slice(1).filter(r=>r[0]).map((r,i)=>({id:Date.now()+i,keyword:String(r[0]).trim(),naverPlace:"-",google:"-",kakao:"-",status:"warn"}));
+      upd("maps",[...data.maps,...nm]);alert(`${nm.length}개 지도 키워드 추가 완료`);};
+    reader.readAsBinaryString(file);e.target.value="";
+  };
+  const handleMapGoogleSheet=async()=>{
+    const url=prompt("구글시트 링크를 붙여넣으세요:\n\n※ 시트가 '링크가 있는 모든 사용자에게 공개'로 설정되어야 합니다.\n※ A열: 키워드 (필수)\n※ 1행은 헤더로 건너뜁니다.");
+    if(!url)return;
+    const idMatch=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if(!idMatch){alert("유효한 구글시트 URL이 아닙니다.");return;}
+    const sheetId=idMatch[1];
+    const gidMatch=url.match(/gid=(\d+)/);
+    const gid=gidMatch?gidMatch[1]:"0";
+    try{
+      setRankLoading("gsheetMap");
+      const res=await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`);
+      if(!res.ok)throw new Error(`시트 접근 실패 (${res.status}). 공유 설정을 확인하세요.`);
+      const text=await res.text();
+      const lines=text.split("\n").map(l=>{
+        const cells=[];let cur="",inQ=false;
+        for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){inQ=!inQ;}else if(c===","&&!inQ){cells.push(cur.trim());cur="";}else{cur+=c;}}
+        cells.push(cur.trim());return cells;
+      });
+      const nm=lines.slice(1).filter(r=>r[0]&&r[0].length>0).map((r,i)=>({
+        id:Date.now()+i,keyword:r[0].replace(/^"|"$/g,"").trim(),naverPlace:"-",google:"-",kakao:"-",status:"warn"
+      }));
+      if(nm.length===0){alert("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
+      upd("maps",[...data.maps,...nm]);
+      alert(`✅ ${nm.length}개 지도 키워드 추가 완료!`);
     }catch(e){alert("구글시트 불러오기 실패: "+e.message);}
     setRankLoading(null);
   };
@@ -2057,7 +2093,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
 
           {/* MAPS */}
           {tab==="maps"&&(
-            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6}}><Btn color="#f59e0b" onClick={()=>runApiDiag()} disabled={rankLoading==="diag"}>{rankLoading==="diag"?"⏳":"🔧 API 진단"}</Btn><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
+            <SectionWithCost title="지도 노출 순위" cost={data.mapsCost} onCostChange={v=>upd("mapsCost",v)} color={CHANNEL_COLORS.maps} right={<div style={{display:"flex",gap:6,flexWrap:"wrap"}}><Btn color="#f59e0b" onClick={()=>runApiDiag()} disabled={rankLoading==="diag"}>{rankLoading==="diag"?"⏳":"🔧 API 진단"}</Btn><Btn color="#10b981" onClick={()=>checkAllMapRanks()} disabled={!!rankLoading}>{rankLoading==="allMaps"?"⏳ 조회중...":"🔍 전체 조회"}</Btn><Btn color="#f59e0b" onClick={()=>mapFileRef.current.click()}>📂 엑셀</Btn><input ref={mapFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleMapExcel}/><Btn color="#34a853" onClick={handleMapGoogleSheet} disabled={rankLoading==="gsheetMap"}>{rankLoading==="gsheetMap"?"⏳":"📊"} 구글시트</Btn><Btn onClick={()=>setModal("map")}>+ 추가</Btn></div>}>
               <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",marginBottom:14,border:"1px solid #334155"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                   <div style={{fontWeight:700,fontSize:13,color:"#10b981"}}>🎯 내 콘텐츠 식별자</div>
