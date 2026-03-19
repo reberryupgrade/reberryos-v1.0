@@ -117,62 +117,63 @@ export async function POST(req) {
         tabOrderResult: tabOrder
       };
 
-      // ---- 플레이스 (네이버 플레이스 전용 검색) ----
+      // ---- 플레이스 (네이버 Place API 직접 호출) ----
       const placeTitles = [];
       let placeDebugMethod = "none";
       {
-        // 방법1: 네이버 플레이스 검색 (where=place) - 별도 요청
+        // 방법1: 네이버 Place 검색 API (JSON 응답)
         try {
-          const placeRes = await fetch(`https://search.naver.com/search.naver?where=place&query=${encoded}`, { headers });
-          const placeHtml = await placeRes.text();
+          const placeApiUrl = `https://map.naver.com/p/api/search/allSearch?query=${encoded}&type=all&searchCoord=&boundary=`;
+          const placeRes = await fetch(placeApiUrl, { headers: {...headers, "Accept": "application/json"} });
+          const placeText = await placeRes.text();
+          if (placeText.startsWith("{")) {
+            const placeData = JSON.parse(placeText);
+            const placeList = placeData?.result?.place?.list || [];
+            for (const p of placeList) {
+              if (p.name && !placeTitles.includes(p.name)) placeTitles.push(p.name);
+            }
+            if (placeTitles.length > 0) placeDebugMethod = "naver_map_api";
+          }
+        } catch {}
 
-          // 플레이스 검색결과에서 업체명 추출
-          const placePats = [
-            /class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs,
-            /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs,
-            /class="[^"]*TYaxT[^"]*"[^>]*>(.*?)<\//gs,
-            /class="[^"]*tit[^"]*"[^>]*>([\uAC00-\uD7A3][^<]{1,40})<\//gs,
-            /"name"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-            /"title"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-            /"placeName"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g,
-          ];
-          const excludeWords = ["관련도순","최신순","옵션","더보기","지도","플레이스","전체","블로그","카페","뉴스","이미지","동영상","쇼핑","파워링크","검색","네이버","설정","로그인","메뉴","정확도순","거리순"];
-          for (const p of placePats) {
-            let m; while ((m = p.exec(placeHtml)) !== null && placeTitles.length < 15) {
-              const t = m[1].replace(/<[^>]*>/g,"").trim();
-              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) {
-                placeTitles.push(t);
+        // 방법2: 네이버 통합검색 place 탭에서 JSON 데이터 추출
+        if (placeTitles.length === 0) {
+          try {
+            const placeRes = await fetch(`https://search.naver.com/search.naver?where=place&query=${encoded}&sm=tab_viw.plc`, { headers });
+            const placeHtml = await placeRes.text();
+            // __NEXT_DATA__ 또는 embedded JSON에서 추출
+            const nextDataMatch = placeHtml.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+            if (nextDataMatch) {
+              try {
+                const nd = JSON.parse(nextDataMatch[1]);
+                const items = nd?.props?.pageProps?.initialState?.place?.list
+                  || nd?.props?.pageProps?.result?.place?.list || [];
+                for (const p of items) {
+                  const name = p.name || p.title || "";
+                  if (name && !placeTitles.includes(name)) placeTitles.push(name);
+                }
+              } catch {}
+            }
+            // JSON-LD 또는 기타 구조화 데이터
+            if (placeTitles.length === 0) {
+              const ldRe = /"name"\s*:\s*"([\uAC00-\uD7A3][^"]{1,40})"/g;
+              let lm; while ((lm = ldRe.exec(placeHtml)) !== null && placeTitles.length < 15) {
+                const t = lm[1].trim();
+                const exclude = ["정렬","기간","병점","더보기","플레이스","네이버","검색"];
+                if (t.length > 2 && !placeTitles.includes(t) && !exclude.some(w => t === w)) placeTitles.push(t);
               }
             }
+            if (placeTitles.length > 0) placeDebugMethod = "place_page";
+          } catch {}
+        }
+
+        // 방법3: 카카오맵 결과를 네이버 플레이스 대리 사용 (최후 수단)
+        // 같은 키워드로 같은 지역의 업체를 보여주므로 참고용으로 사용
+        if (placeTitles.length === 0 && results.kakaoMap?.titles?.length > 0) {
+          for (const t of results.kakaoMap.titles) {
+            if (!placeTitles.includes(t)) placeTitles.push(t);
           }
-
-          // 방법1b: place.naver.com 링크의 업체명 추출
-          if (placeTitles.length === 0) {
-            const linkPat = /place\.naver\.com\/[^"]*"[^>]*>([^<]{2,40})<\//g;
-            let lm; while ((lm = linkPat.exec(placeHtml)) !== null && placeTitles.length < 15) {
-              const t = lm[1].trim();
-              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) placeTitles.push(t);
-            }
-          }
-
-          // 방법1c: 한글 링크 텍스트 추출 (넓은 범위)
-          if (placeTitles.length === 0) {
-            const aRe = /<a[^>]+href="[^"]*(?:place|local)[^"]*"[^>]*>([\uAC00-\uD7A3][^<]{1,40})<\/a>/g;
-            let am; while ((am = aRe.exec(placeHtml)) !== null && placeTitles.length < 15) {
-              const t = am[1].trim();
-              if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t) && !excludeWords.some(w => t === w)) placeTitles.push(t);
-            }
-          }
-
-          if (placeTitles.length > 0) placeDebugMethod = "place_search";
-          else placeDebugMethod = "place_search_empty(" + placeHtml.length + ")";
-        } catch (pe) { placeDebugMethod = "place_search_error:" + pe.message; }
-
-        // 방법2: HTML 태그 (한국 서버에서 동작)
-        if (placeTitles.length === 0) {
-          const pPats = [/class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs];
-          for (const p of pPats) { let m; while ((m = p.exec(mainHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<50 && !placeTitles.includes(t)) placeTitles.push(t); } }
-          if (placeTitles.length > 0) placeDebugMethod = "html_class";
+          placeDebugMethod = "kakao_fallback";
         }
       }
 
