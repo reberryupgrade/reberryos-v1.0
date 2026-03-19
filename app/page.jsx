@@ -1031,7 +1031,8 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
       powerlink:r.powerlink?.titles||[],naverMap:r.naverMap?.titles||[],
       googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],
       tabOrder:r.tabOrder&&r.tabOrder.length>0?r.tabOrder:(k.detectedTabOrder||[]),
-      _tabDebug:r._tabDebug||null
+      _tabDebug:r._tabDebug||null,
+      _placeDebug:r.place?._debug||null
     };
     return updates;
   };
@@ -1088,7 +1089,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
         else if(r.googleMap?.titles?.length)updates.google="미노출";
         if(r.kakaoMap?.rank)updates.kakao=r.kakaoMap.rank+"위";
         else if(r.kakaoMap?.titles?.length)updates.kakao="미노출";
-        updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
+        updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_placeDebug:r.place?._debug||null,_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
         const rn=parseInt(updates.naverPlace)||99;const rg=parseInt(updates.google)||99;const rk=parseInt(updates.kakao)||99;
         const best=Math.min(rn,rg,rk);updates.status=best<=3?"good":best<=5?"warn":"danger";
         upd("maps",dataRef.current.maps.map(m=>m.id===mapItem.id?{...m,...updates}:m));
@@ -1119,7 +1120,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
           else if(r.googleMap?.titles?.length)updates.google="미노출";
           if(r.kakaoMap?.rank)updates.kakao=r.kakaoMap.rank+"위";
           else if(r.kakaoMap?.titles?.length)updates.kakao="미노출";
-          updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
+          updates._mapDetail={place:r.place?.titles||[],googleMap:r.googleMap?.titles||[],kakaoMap:r.kakaoMap?.titles||[],_placeDebug:r.place?._debug||null,_kakaoDebug:r.kakaoMap?._debug||null,_googleDebug:r.googleMap?.error||null};
           const rn=parseInt(updates.naverPlace)||99;const rg=parseInt(updates.google)||99;const rk=parseInt(updates.kakao)||99;
           const best=Math.min(rn,rg,rk);updates.status=best<=3?"good":best<=5?"warn":"danger";
           cur=cur.map(x=>x.id===m.id?{...x,...updates}:x);
@@ -2182,6 +2183,12 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
                         </div>
                       );
                     })}
+                    {modal.item._mapDetail?._placeDebug&&(
+                      <div style={{background:"#1a1a2e",borderRadius:8,padding:"10px 14px",marginTop:8,border:"1px solid #334155"}}>
+                        <div style={{color:"#06b6d4",fontSize:11,fontWeight:700,marginBottom:6}}>🔧 네이버 플레이스 디버그</div>
+                        <pre style={{color:"#94a3b8",fontSize:10,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(modal.item._mapDetail._placeDebug,null,2)}</pre>
+                      </div>
+                    )}
                     {modal.item._mapDetail?._kakaoDebug&&(
                       <div style={{background:"#1a1a2e",borderRadius:8,padding:"10px 14px",marginTop:8,border:"1px solid #334155"}}>
                         <div style={{color:"#f59e0b",fontSize:11,fontWeight:700,marginBottom:6}}>🔧 카카오맵 디버그</div>

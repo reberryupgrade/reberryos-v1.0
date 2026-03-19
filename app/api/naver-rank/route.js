@@ -119,10 +119,41 @@ export async function POST(req) {
 
       // ---- 플레이스 ----
       const placeTitles = [];
-      const pPats = [/class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs, /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs];
-      for (const p of pPats) { let m; while ((m = p.exec(html)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && !placeTitles.includes(t)) placeTitles.push(t); } }
+      // 다양한 패턴으로 플레이스 업체명 추출 (해외 HTML 대응)
+      const pPats = [
+        /class="[^"]*place_bluelink[^"]*"[^>]*>(.*?)<\//gs,
+        /class="[^"]*place_tit[^"]*"[^>]*>(.*?)<\//gs,
+        /class="[^"]*YwYLL[^"]*"[^>]*>(.*?)<\//gs,
+        /class="[^"]*tit_area[^"]*"[^>]*>[\s\S]*?<[^>]*>(.*?)<\//gs,
+        /class="[^"]*_3Bnlk[^"]*"[^>]*>(.*?)<\//gs,
+        /class="[^"]*CHC5F[^"]*"[^>]*>(.*?)<\//gs,
+        /class="[^"]*TYaxT[^"]*"[^>]*>(.*?)<\//gs,
+        /data-laim-id="[^"]*place[^"]*"[\s\S]*?>([\uAC00-\uD7A3][^<]{2,40})<\//gs,
+      ];
+      for (const p of pPats) { let m; while ((m = p.exec(mainHtml)) !== null) { const t = m[1].replace(/<[^>]*>/g,"").trim(); if (t && t.length>1 && t.length<50 && !placeTitles.includes(t)) placeTitles.push(t); } }
+
+      // 백업: 플레이스 섹션 내부의 모든 링크 텍스트 추출
+      if (placeTitles.length === 0) {
+        const placeSecStart = mainHtml.search(/플레이스|place_bluelink|LocalInfo|nmb_hplw/i);
+        if (placeSecStart >= 0) {
+          const placeSec = mainHtml.slice(placeSecStart, placeSecStart + 5000);
+          const linkRe = /<a[^>]*>([\uAC00-\uD7A3][^<]{2,40})<\/a>/g;
+          let lm; while ((lm = linkRe.exec(placeSec)) !== null && placeTitles.length < 10) {
+            const t = lm[1].replace(/<[^>]*>/g,"").trim();
+            if (t && t.length > 1 && t.length < 50 && !placeTitles.includes(t)) placeTitles.push(t);
+          }
+        }
+      }
+
       results.place = { titles: placeTitles.slice(0,10) };
-      if (targets?.placeName) { const i = placeTitles.findIndex(t => tl(t).includes(tl(targets.placeName))); results.place.rank = i>=0 ? i+1 : null; }
+      if (targets?.placeName) {
+        const pn = tl(targets.placeName);
+        let i = placeTitles.findIndex(t => tl(t).includes(pn));
+        if (i < 0) i = placeTitles.findIndex(t => pn.includes(tl(t)));
+        if (i < 0) { const pnNS = pn.replace(/\s/g,""); i = placeTitles.findIndex(t => tl(t).replace(/\s/g,"").includes(pnNS) || pnNS.includes(tl(t).replace(/\s/g,""))); }
+        results.place.rank = i >= 0 ? i + 1 : null;
+        results.place._debug = { matchTarget: targets.placeName, titlesFound: placeTitles.length, matched: i >= 0, matchIndex: i };
+      }
 
       // ---- 뉴스 ----
       const newsTitles = [];
