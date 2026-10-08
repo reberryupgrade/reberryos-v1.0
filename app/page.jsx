@@ -1029,6 +1029,7 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout,saveSt
   };
   const applyRankResult=(kwId,d)=>{
     const r=d.results||{};
+    const k=(dataRef.current.keywords||[]).find(x=>x.id===kwId)||{};
     const updates={lastRankCheck:today()};
     if(r.blog?.rank)updates.myBlogRank=r.blog.rank+"위";
     else if(r.blog?.titles?.length)updates.myBlogRank="미노출";
