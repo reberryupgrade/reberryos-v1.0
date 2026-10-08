@@ -2,36 +2,44 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Cell, AreaChart, Area, Legend } from "recharts";
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// 서버 API 호출 공통 래퍼. 세션 쿠키가 자동으로 실리고, 권한 검사는 서버가 한다.
+async function api(path,{method="GET",body}={}){
+  let r;
+  try{
+    r=await fetch(path,{method,credentials:"same-origin",headers:body?{"Content-Type":"application/json"}:{},body:body?JSON.stringify(body):undefined});
+  }catch(e){
+    return {ok:false,status:0,body:{error:"네트워크 오류: "+e.message}};
+  }
+  let data=null;
+  try{data=await r.json();}catch{}
+  return {ok:r.ok,status:r.status,body:data};
+}
 
 const TAB_TYPES = ["블로그","지식인","카페","플레이스","뉴스","파워링크"];
 
-const YT_API_KEY="AIzaSyBaQzlNcJldt5zuPR_1CtD-1zsBvcKITl0";
+// YouTube Data API 는 서버 프록시(/api/youtube)를 거친다. API 키는 서버에만 있다.
+async function ytApi(endpoint,params){
+  const qs=new URLSearchParams({endpoint,...params}).toString();
+  const r=await api("/api/youtube?"+qs);
+  return r.body||{};
+}
 function extractYtId(url){if(!url)return null;const m=url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);return m?m[1]:null;}
 async function fetchYtVideo(videoId){
   try{
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${YT_API_KEY}`);
-    const d=await r.json();if(!d.items||!d.items.length)return null;
+    const d=await ytApi("videos",{part:"snippet,statistics",id:videoId});if(!d.items||!d.items.length)return null;
     const item=d.items[0];const s=item.statistics;const sn=item.snippet;
     return{title:sn.title,views:+(s.viewCount||0),likes:+(s.likeCount||0),commentCount:+(s.commentCount||0),channelTitle:sn.channelTitle,channelId:sn.channelId,thumbnail:sn.thumbnails?.medium?.url||"",publishedAt:sn.publishedAt?.split("T")[0]||""};
   }catch(e){console.error("YT video fetch error:",e);return null;}
 }
 async function fetchYtComments(videoId,maxResults=20){
   try{
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=${maxResults}&order=time&key=${YT_API_KEY}`);
-    const d=await r.json();if(!d.items)return[];
+    const d=await ytApi("commentThreads",{part:"snippet",videoId,maxResults,order:"time"});if(!d.items)return[];
     return d.items.map(item=>{const s=item.snippet.topLevelComment.snippet;return{author:s.authorDisplayName,text:s.textDisplay?.replace(/<[^>]*>/g,"")||"",date:s.publishedAt?.split("T")[0]||"",likes:+(s.likeCount||0)};});
   }catch(e){console.error("YT comments fetch error:",e);return[];}
 }
 async function fetchYtChannel(channelId){
   try{
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${YT_API_KEY}`);
-    const d=await r.json();if(!d.items||!d.items.length)return null;
+    const d=await ytApi("channels",{part:"statistics,snippet",id:channelId});if(!d.items||!d.items.length)return null;
     const s=d.items[0].statistics;const sn=d.items[0].snippet;
     return{name:sn.title,subscribers:+(s.subscriberCount||0),totalViews:+(s.viewCount||0),videoCount:+(s.videoCount||0)};
   }catch(e){console.error("YT channel fetch error:",e);return null;}
@@ -47,23 +55,18 @@ function extractYtChannelId(url){
 async function resolveYtChannelId(input){
   const parsed=extractYtChannelId(input);
   if(!parsed){
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(input)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
-    const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+    const d=await ytApi("search",{part:"snippet",q:input,type:"channel",maxResults:1});if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
   }
   if(parsed.type==="id")return parsed.val;
-  const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(parsed.val)}&type=channel&maxResults=1&key=${YT_API_KEY}`);
-  const d=await r.json();if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
+  const d=await ytApi("search",{part:"snippet",q:parsed.val,type:"channel",maxResults:1});if(d.items&&d.items.length)return d.items[0].snippet.channelId;return null;
 }
 async function fetchYtChannelVideos(channelId,maxResults=10){
   try{
-    const cr=await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet,statistics&id=${channelId}&key=${YT_API_KEY}`);
-    const cd=await cr.json();if(!cd.items||!cd.items.length)return null;
+    const cd=await ytApi("channels",{part:"contentDetails,snippet,statistics",id:channelId});if(!cd.items||!cd.items.length)return null;
     const ch=cd.items[0];const uploadsId=ch.contentDetails.relatedPlaylists.uploads;
-    const pr=await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=${maxResults}&key=${YT_API_KEY}`);
-    const pd=await pr.json();if(!pd.items)return{channel:ch,videos:[]};
+    const pd=await ytApi("playlistItems",{part:"snippet",playlistId:uploadsId,maxResults});if(!pd.items)return{channel:ch,videos:[]};
     const videoIds=pd.items.map(i=>i.snippet.resourceId.videoId).join(",");
-    const vr=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${YT_API_KEY}`);
-    const vd=await vr.json();
+    const vd=await ytApi("videos",{part:"statistics,snippet",id:videoIds});
     const videos=(vd.items||[]).map(v=>({
       videoId:v.id,title:v.snippet.title,url:`https://youtube.com/watch?v=${v.id}`,
       views:+(v.statistics.viewCount||0),likes:+(v.statistics.likeCount||0),
@@ -166,42 +169,23 @@ const DEFAULT_BRANCH_DATA = {
   avgRevenuePerPatient:500000,
 };
 
-const DEFAULT_SYSTEM = {
-  users:[
-    {id:1,username:"admin",password:"admin",role:"admin",name:"통합관리자",branchId:null},
-    {id:2,username:"manager1",password:"1234",role:"manager",name:"강남점 매니저",branchId:1},
-    {id:3,username:"client1",password:"1234",role:"client",name:"강남피부과 원장",branchId:1},
-  ],
-  branches:[{id:1,name:"강남점",clinicName:"강남 피부과"}],
-};
-
-// Storage
-const SYS_KEY="reberryos-v1-sys";
-const bKey=id=>`reberryos-v1-b-${id}`;
-async function loadSys(){
-  try{
-    const {data,error}=await supabase.from('app_storage').select('value').eq('key',SYS_KEY).single();
-    if(error||!data)return null;
-    return data.value;
-  }catch{return null;}
-}
+// Storage (서버 API 경유. 세션 쿠키로 인증되고 역할별 권한은 서버가 검사한다)
+async function loadSys(){const r=await api("/api/storage/sys");return r.ok?r.body.value:null;}
 async function saveSys(d){
-  try{
-    await supabase.from('app_storage').upsert({key:SYS_KEY,value:d,updated_at:new Date().toISOString()});
-  }catch{}
+  const r=await api("/api/storage/sys",{method:"PUT",body:{value:d}});
+  if(!r.ok)alert("설정 저장 실패: "+(r.body?.error||"HTTP "+r.status));
+  return r;
 }
-async function loadBranch(id){
-  try{
-    const {data,error}=await supabase.from('app_storage').select('value').eq('key',bKey(id)).single();
-    if(error||!data)return null;
-    return data.value;
-  }catch{return null;}
+// 성공 시 {value,updatedAt}, 없거나 권한이 없으면 null
+async function loadBranch(id){const r=await api(`/api/storage/branch/${id}`);return r.ok?r.body:null;}
+// baseUpdatedAt: 불러왔을 때의 updatedAt. 서버 저장본이 그 뒤에 바뀌었으면 409 로 거절된다.
+async function saveBranch(id,d,{baseUpdatedAt,force}={}){
+  return api(`/api/storage/branch/${id}`,{method:"PUT",body:{value:d,baseUpdatedAt,force:!!force}});
 }
-async function saveBranch(id,d){
-  try{
-    await supabase.from('app_storage').upsert({key:bKey(id),value:d,updated_at:new Date().toISOString()});
-  }catch{}
-}
+async function deleteBranch(id){return api(`/api/storage/branch/${id}`,{method:"DELETE"});}
+
+const SAVE_BADGE={saving:["저장 중…","#64748b"],saved:["저장됨","#10b981"],error:["저장 실패","#ef4444"],conflict:["충돌 확인 필요","#f59e0b"]};
+const SaveBadge=({status})=>{const s=SAVE_BADGE[status];if(!s)return null;return <span style={{color:s[1],fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>● {s[0]}</span>;};
 
 const fmt=n=>(n||0).toLocaleString();
 const fmtW=n=>"₩"+(n||0).toLocaleString();
@@ -437,14 +421,18 @@ function exportExcel(data, branchName){
 }
 
 // ===== LOGIN SCREEN =====
-function LoginScreen({onLogin,system}){
+function LoginScreen({onLogin}){
   const[u,setU]=useState("");
   const[p,setP]=useState("");
   const[err,setErr]=useState("");
-  const handleLogin=()=>{
-    const user=system.users.find(x=>x.username===u&&x.password===p);
-    if(!user){setErr("아이디 또는 비밀번호가 일치하지 않습니다.");return;}
-    setErr("");onLogin(user);
+  const[busy,setBusy]=useState(false);
+  const handleLogin=async()=>{
+    if(busy)return;
+    setBusy(true);setErr("");
+    const r=await api("/api/auth/login",{method:"POST",body:{username:u,password:p}});
+    setBusy(false);
+    if(!r.ok){setErr(r.body?.error||"로그인에 실패했습니다.");return;}
+    onLogin(r.body.user);
   };
   return (
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Apple SD Gothic Neo',sans-serif"}}>
@@ -458,7 +446,7 @@ function LoginScreen({onLogin,system}){
         <FF label="비밀번호"><input type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="비밀번호 입력" onKeyDown={e=>e.key==="Enter"&&handleLogin()}
           style={{background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"7px 11px",color:"#f1f5f9",fontSize:13,width:"100%",boxSizing:"border-box"}}/></FF>
         {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:12}}>{err}</div>}
-        <Btn onClick={handleLogin} color="#6366f1" style={{width:"100%",padding:"10px",fontSize:14,marginTop:4}}>로그인</Btn>
+        <Btn onClick={handleLogin} color="#6366f1" style={{width:"100%",padding:"10px",fontSize:14,marginTop:4}}>{busy?"확인 중…":"로그인"}</Btn>
 
       </div>
     </div>
@@ -541,7 +529,7 @@ function AddUserForm({branches,onSave}){
     <div>
       <FF label="이름"><Inp value={f.name} onChange={v=>setF({...f,name:v})} placeholder="홍길동"/></FF>
       <FF label="아이디"><Inp value={f.username} onChange={v=>setF({...f,username:v})} placeholder="user1"/></FF>
-      <FF label="비밀번호"><Inp value={f.password} onChange={v=>setF({...f,password:v})} placeholder="1234"/></FF>
+      <FF label="비밀번호"><Inp value={f.password} onChange={v=>setF({...f,password:v})} placeholder="6자 이상"/></FF>
       <FF label="역할">
         <div style={{display:"flex",gap:8}}>
           {[["admin","통합관리자"],["manager","지점관리자"],["client","클라이언트"]].map(([r,l])=>(
@@ -562,32 +550,61 @@ function AddUserForm({branches,onSave}){
   );
 }
 
+function ChangePasswordForm({onSave}){
+  const[p1,setP1]=useState("");
+  const[p2,setP2]=useState("");
+  const[err,setErr]=useState("");
+  const submit=()=>{
+    if(p1.length<6)return setErr("비밀번호는 6자 이상이어야 합니다.");
+    if(p1!==p2)return setErr("비밀번호가 서로 다릅니다.");
+    setErr("");onSave(p1);
+  };
+  return (
+    <div>
+      <FF label="새 비밀번호"><Inp type="password" value={p1} onChange={setP1} placeholder="6자 이상"/></FF>
+      <FF label="새 비밀번호 확인"><Inp type="password" value={p2} onChange={setP2} placeholder="다시 입력"/></FF>
+      {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:12}}>{err}</div>}
+      <Btn onClick={submit} style={{width:"100%",marginTop:4}}>변경</Btn>
+    </div>
+  );
+}
+
 function AdminDashboard({system,setSystem,onSelectBranch,branchSummaries,user,onLogout}){
   const[modal,setModal]=useState(null);
   const[tab,setTab]=useState("branches");
 
-  const addBranch=(f)=>{
+  // 서버가 확정한 설정으로 화면을 맞춘다 (비밀번호는 서버에서 해시되며 다시 내려오지 않는다)
+  const commitSys=async(newSys)=>{
+    const r=await saveSys(newSys);
+    if(r.ok)setSystem(r.body.value);
+    return r.ok;
+  };
+  const addBranch=async(f)=>{
     const nb={id:Date.now(),name:f.name,clinicName:f.clinicName||f.name};
-    const newSys={...system,branches:[...system.branches,nb]};
-    setSystem(newSys);saveSys(newSys);
-    // Save default data for new branch
-    saveBranch(nb.id,{...DEFAULT_BRANCH_DATA,portalConfig:{...DEFAULT_BRANCH_DATA.portalConfig,clinicName:nb.clinicName}});
+    if(!(await commitSys({...system,branches:[...system.branches,nb]})))return;
+    // 새 지점의 기본 데이터 저장
+    const r=await saveBranch(nb.id,{...DEFAULT_BRANCH_DATA,portalConfig:{...DEFAULT_BRANCH_DATA.portalConfig,clinicName:nb.clinicName}});
+    if(!r.ok)alert("지점 기본 데이터 저장 실패: "+(r.body?.error||"HTTP "+r.status));
     setModal(null);
   };
-  const delBranch=(id)=>{
+  const delBranch=async(id)=>{
     if(!confirm("이 지점과 모든 데이터를 삭제합니다. 계속할까요?"))return;
     const newSys={...system,branches:system.branches.filter(b=>b.id!==id),users:system.users.map(u=>u.branchId===id?{...u,branchId:null}:u)};
-    setSystem(newSys);saveSys(newSys);
+    if(!(await commitSys(newSys)))return;
+    const r=await deleteBranch(id);
+    if(!r.ok)alert("지점 데이터 삭제 실패: "+(r.body?.error||"HTTP "+r.status));
   };
-  const addUser=(f)=>{
-    const nu={id:Date.now(),username:f.username,password:f.password,role:f.role,name:f.name,branchId:f.role!=="admin"?(+f.branchId||null):null};
-    const newSys={...system,users:[...system.users,nu]};
-    setSystem(newSys);saveSys(newSys);setModal(null);
+  const addUser=async(f)=>{
+    const nu={id:Date.now(),username:f.username.trim(),password:f.password,role:f.role,name:f.name,branchId:f.role!=="admin"?(+f.branchId||null):null};
+    if(await commitSys({...system,users:[...system.users,nu]}))setModal(null);
+  };
+  const changePassword=async(id,password)=>{
+    if(await commitSys({...system,users:system.users.map(u=>u.id===id?{...u,password}:u)}))setModal(null);
   };
   const delUser=(id)=>{
     if(id===user.id)return alert("자신의 계정은 삭제할 수 없습니다.");
-    const newSys={...system,users:system.users.filter(u=>u.id!==id)};
-    setSystem(newSys);saveSys(newSys);
+    if(!confirm("이 사용자를 삭제할까요?"))return;
+    commitSys({...system,users:system.users.filter(u=>u.id!==id)});
   };
 
   return (
@@ -673,7 +690,7 @@ function AdminDashboard({system,setSystem,onSelectBranch,branchSummaries,user,on
                 <tr key={u.id} style={{borderBottom:"1px solid #1e293b",background:ri%2===0?"#0f172a":"#111827"}}>
                   <Td><span style={{fontWeight:700}}>{u.name}</span></Td>
                   <Td>{u.username}</Td>
-                  <Td><span style={{color:"#475569"}}>{u.password}</span></Td>
+                  <Td><Btn onClick={()=>setModal({pw:u.id})} color="#334155" style={{color:"#94a3b8",padding:"3px 10px",fontSize:11}}>변경</Btn></Td>
                   <Td><span style={{background:u.role==="admin"?"#6366f1":u.role==="manager"?"#10b981":"#f59e0b",color:"#fff",borderRadius:99,padding:"2px 10px",fontSize:12,fontWeight:700}}>
                     {u.role==="admin"?"통합관리자":u.role==="manager"?"지점관리자":"클라이언트"}
                   </span></Td>
@@ -685,6 +702,11 @@ function AdminDashboard({system,setSystem,onSelectBranch,branchSummaries,user,on
             {modal==="addUser"&&(
               <Modal title="사용자 추가" onClose={()=>setModal(null)}>
                 <AddUserForm branches={system.branches} onSave={addUser}/>
+              </Modal>
+            )}
+            {modal?.pw&&(
+              <Modal title={`비밀번호 변경: ${system.users.find(u=>u.id===modal.pw)?.name||""}`} onClose={()=>setModal(null)}>
+                <ChangePasswordForm onSave={pw=>changePassword(modal.pw,pw)}/>
               </Modal>
             )}
           </div>
@@ -972,7 +994,7 @@ function PhotoViewer({photo,startIdx,onClose,onDelete}){
 }
 
 // ===== BRANCH APP (main management UI) =====
-function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
+function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout,saveStatus}){
   const[tab,setTab]=useState("overview");
   const[modal,setModal]=useState(null);
   const[sidebar,setSidebar]=useState(true);
@@ -1387,7 +1409,8 @@ function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout}){
           <div>
             <div style={{fontWeight:800,fontSize:17}}>{branchName&&<span style={{color:"#a5b4fc",marginRight:8,fontSize:13,background:"#1e1b4b",borderRadius:6,padding:"2px 8px"}}>{branchName}</span>}{TABS.find(t=>t.id===tab)?.label}</div>
           </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <SaveBadge status={saveStatus}/>
             <Btn onClick={()=>exportExcel(data,branchName)} color="#334155" style={{color:"#94a3b8",padding:"5px 12px",fontSize:12}}>📥 엑셀</Btn>
           </div>
         </div>
@@ -3204,33 +3227,112 @@ export default function App(){
   const[activeBranchId,setActiveBranchId]=useState(null);
   const[branchData,setBranchData]=useState(null);
   const[branchSummaries,setBranchSummaries]=useState({});
-  const[loaded,setLoaded]=useState(false);
-  const[saving,setSaving]=useState(false);
+  const[loaded,setLoaded]=useState(false);          // 세션 확인 완료 여부
+  const[saveStatus,setSaveStatus]=useState("idle"); // idle | saving | saved | error | conflict
 
-  // Load system
+  // 저장 파이프라인 상태 (렌더와 무관하므로 ref)
+  const pendingRef=useRef(null);          // {id,data,force}: 아직 서버에 보내지 않은 최신 변경
+  const timerRef=useRef(null);
+  const baseRef=useRef({});               // branchId -> 마지막으로 서버와 맞춘 updatedAt
+  const loadedRef=useRef(null);           // 방금 서버에서 불러온 객체 (그대로 다시 저장하지 않기 위한 식별용)
+  const activeRef=useRef(null);
+  const inflightRef=useRef(Promise.resolve());
+  const errorAlertedRef=useRef(false);
+  useEffect(()=>{activeRef.current=activeBranchId;},[activeBranchId]);
+
+  const applyUser=u=>{
+    setUser(u);
+    if(u.role==="manager"||u.role==="client")setActiveBranchId(u.branchId);
+  };
+
+  // 새로고침해도 세션 쿠키가 살아 있으면 로그인 유지
   useEffect(()=>{
-    loadSys().then(s=>{
-      if(s){setSystem(s);}
-      else{setSystem(DEFAULT_SYSTEM);saveSys(DEFAULT_SYSTEM);saveBranch(1,DEFAULT_BRANCH_DATA);}
-      setLoaded(true);
-    });
+    api("/api/auth/me").then(r=>{if(r.ok&&r.body?.user)applyUser(r.body.user);setLoaded(true);});
   },[]);
 
-  // Load branch data when activeBranchId changes
+  // 로그인 후 시스템 설정 로드. 실패(세션 만료 등)하면 로그인 화면으로
+  useEffect(()=>{
+    if(!user){setSystem(null);return;}
+    loadSys().then(s=>{if(s)setSystem(s);else setUser(null);});
+  },[user]);
+
+  // 지점 선택 시 데이터 로드
   useEffect(()=>{
     if(!activeBranchId)return;
-    loadBranch(activeBranchId).then(d=>{
-      setBranchData(d||{...DEFAULT_BRANCH_DATA});
+    let cancelled=false;
+    loadBranch(activeBranchId).then(r=>{
+      if(cancelled)return;
+      const d=r?.value||{...DEFAULT_BRANCH_DATA};
+      loadedRef.current=d;
+      baseRef.current[activeBranchId]=r?.updatedAt||null;
+      setBranchData(d);
+      setSaveStatus("idle");
     });
+    return()=>{cancelled=true;};
   },[activeBranchId]);
 
-  // Save branch data on change
+  // 대기 중인 변경을 서버에 저장. 요청은 한 번에 하나씩만 보낸다.
+  const flushSave=()=>{
+    const run=inflightRef.current.then(async()=>{
+      const p=pendingRef.current;
+      if(!p)return;
+      pendingRef.current=null;
+      clearTimeout(timerRef.current);
+      const r=await saveBranch(p.id,p.data,{baseUpdatedAt:baseRef.current[p.id]??null,force:p.force});
+      if(r.ok){
+        baseRef.current[p.id]=r.body.updatedAt;
+        errorAlertedRef.current=false;
+        setSaveStatus(pendingRef.current?"saving":"saved");
+        return;
+      }
+      if(r.status===409){
+        setSaveStatus("conflict");
+        const overwrite=confirm("다른 사용자가 이 지점을 먼저 수정했습니다.\n\n확인: 내 변경으로 덮어쓰기\n취소: 서버의 최신 데이터 다시 불러오기 (내 변경은 사라집니다)");
+        if(overwrite){pendingRef.current={id:p.id,data:p.data,force:true};flushSave();}
+        else if(activeRef.current===p.id){
+          baseRef.current[p.id]=r.body.updatedAt;
+          loadedRef.current=r.body.value;
+          setBranchData(r.body.value);
+          setSaveStatus("saved");
+        }
+        return;
+      }
+      // 실패: 변경분을 남겨 두고 5초 뒤 자동 재시도 (그 사이 새 변경이 오면 그것으로 대체)
+      pendingRef.current=pendingRef.current||p;
+      setSaveStatus("error");
+      clearTimeout(timerRef.current);
+      timerRef.current=setTimeout(flushSave,5000);
+      if(!errorAlertedRef.current){
+        errorAlertedRef.current=true;
+        alert("저장 실패: "+(r.body?.error||"HTTP "+r.status)+"\n연결을 확인해 주세요. 자동으로 다시 시도합니다.");
+      }
+    });
+    inflightRef.current=run.catch(()=>{});
+    return run;
+  };
+
+  // 변경 후 0.9초 뒤 저장 (방금 불러온 데이터는 다시 저장하지 않음)
   useEffect(()=>{
-    if(!activeBranchId||!branchData)return;
-    setSaving(true);
-    const t=setTimeout(()=>{saveBranch(activeBranchId,branchData).then(()=>setSaving(false));},900);
-    return()=>clearTimeout(t);
+    if(!activeBranchId||!branchData||branchData===loadedRef.current)return;
+    pendingRef.current={id:activeBranchId,data:branchData};
+    setSaveStatus("saving");
+    clearTimeout(timerRef.current);
+    timerRef.current=setTimeout(flushSave,900);
+    return()=>clearTimeout(timerRef.current);
   },[branchData,activeBranchId]);
+
+  // 지점을 떠나거나 바꿀 때 대기 중인 변경을 즉시 저장
+  useEffect(()=>{
+    if(!activeBranchId)return;
+    return()=>{flushSave();};
+  },[activeBranchId]);
+
+  // 저장이 끝나기 전에 탭을 닫으려 하면 경고
+  useEffect(()=>{
+    const h=e=>{if(pendingRef.current){e.preventDefault();e.returnValue="";}};
+    window.addEventListener("beforeunload",h);
+    return()=>window.removeEventListener("beforeunload",h);
+  },[]);
 
   // Load summaries for admin dashboard
   useEffect(()=>{
@@ -3238,7 +3340,7 @@ export default function App(){
     const loadAll=async()=>{
       const sums={};
       for(const b of system.branches){
-        const d=await loadBranch(b.id);
+        const d=(await loadBranch(b.id))?.value;
         if(d){
           const off=[...(d.offline?.elevator||[]),...(d.offline?.subway||[]),...(d.offline?.other||[])].filter(a=>a.status==="집행중").reduce((a,x)=>a+(+x.cost||0),0);
           const kwC=Object.values(d.keywordCosts||{}).reduce((a,x)=>a+x,0);
@@ -3256,12 +3358,18 @@ export default function App(){
     loadAll();
   },[system,user]);
 
-  const logout=()=>{setUser(null);setActiveBranchId(null);setBranchData(null);};
+  const logout=async()=>{
+    await flushSave();
+    await api("/api/auth/logout",{method:"POST"});
+    setUser(null);setActiveBranchId(null);setBranchData(null);setBranchSummaries({});
+  };
 
-  if(!loaded||!system)return <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:"#6366f1",fontSize:18,fontFamily:"sans-serif"}}>로딩 중...</div>;
+  const loadingView=<div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:"#6366f1",fontSize:18,fontFamily:"sans-serif"}}>로딩 중...</div>;
+  if(!loaded)return loadingView;
 
   // Not logged in
-  if(!user)return <LoginScreen system={system} onLogin={u=>{setUser(u);if(u.role==="manager"||u.role==="client")setActiveBranchId(u.branchId);}}/>;
+  if(!user)return <LoginScreen onLogin={applyUser}/>;
+  if(!system)return loadingView;
 
   // Client → portal only
   if(user.role==="client"){
@@ -3299,5 +3407,6 @@ export default function App(){
     user={user}
     onBack={user.role==="admin"?()=>{setActiveBranchId(null);setBranchData(null);}:null}
     onLogout={logout}
+    saveStatus={saveStatus}
   />;
 }
