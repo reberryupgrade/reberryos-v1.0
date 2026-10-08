@@ -3,12 +3,14 @@ import { useState } from "react";
 import { saveSys, saveBranch, deleteBranch } from "@/src/lib/api";
 import { DEFAULT_BRANCH_DATA } from "@/src/lib/constants";
 import { fmt, fmtW } from "@/src/lib/format";
+import { useBranchSummaries } from "@/src/hooks/useBranchSummaries";
 import { Th, Td, Btn, DelBtn, Modal } from "@/src/components/ui";
 import { SimpleForm, AddUserForm, ChangePasswordForm } from "@/src/components/forms";
 
-export function AdminDashboard({system,setSystem,onSelectBranch,branchSummaries,user,onLogout}){
+export function AdminDashboard({system,setSystem,onSelectBranch,user,onLogout}){
   const[modal,setModal]=useState(null);
   const[tab,setTab]=useState("branches");
+  const branchSummaries=useBranchSummaries(system.branches);
 
   // 서버가 확정한 설정으로 화면을 맞춘다 (비밀번호는 서버에서 해시되며 다시 내려오지 않는다)
   const commitSys=async(newSys)=>{
