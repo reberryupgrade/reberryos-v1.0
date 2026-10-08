@@ -683,7 +683,7 @@ export async function POST(req) {
           }
         }
       }
-    } catch (e) { /* 검색광고 API 실패 시 무시 */ }
+    } catch { /* 검색광고 API 실패 시 무시 */ }
 
     return Response.json({ keyword, timestamp: new Date().toISOString(), results });
   } catch (err) {
