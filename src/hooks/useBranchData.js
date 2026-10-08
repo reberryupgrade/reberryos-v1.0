@@ -2,6 +2,8 @@
 import { useState, useRef, useEffect } from "react";
 import { loadBranch, saveBranch } from "@/src/lib/api";
 import { DEFAULT_BRANCH_DATA } from "@/src/lib/constants";
+import { stripDebug } from "@/src/lib/persist";
+import { notify, confirmDialog } from "@/src/components/feedback";
 
 // 지점 데이터 로드 + 자동 저장 파이프라인
 // - 변경 후 0.9초 디바운스로 저장하고, 요청은 한 번에 하나씩만 보낸다
@@ -42,7 +44,7 @@ export function useBranchData(activeBranchId) {
       if (!p) return;
       pendingRef.current = null;
       clearTimeout(timerRef.current);
-      const r = await saveBranch(p.id, p.data, { baseUpdatedAt: baseRef.current[p.id] ?? null, force: p.force });
+      const r = await saveBranch(p.id, stripDebug(p.data), { baseUpdatedAt: baseRef.current[p.id] ?? null, force: p.force });
       if (r.ok) {
         baseRef.current[p.id] = r.body.updatedAt;
         errorAlertedRef.current = false;
@@ -51,7 +53,10 @@ export function useBranchData(activeBranchId) {
       }
       if (r.status === 409) {
         setSaveStatus("conflict");
-        const overwrite = confirm("다른 사용자가 이 지점을 먼저 수정했습니다.\n\n확인: 내 변경으로 덮어쓰기\n취소: 서버의 최신 데이터 다시 불러오기 (내 변경은 사라집니다)");
+        const overwrite = await confirmDialog(
+          "다른 사용자가 이 지점을 먼저 수정했습니다.\n내 변경으로 덮어쓸까요? 다시 불러오면 내 변경은 사라집니다.",
+          { okLabel: "내 변경으로 덮어쓰기", cancelLabel: "서버 데이터 다시 불러오기", danger: true },
+        );
         if (overwrite) { pendingRef.current = { id: p.id, data: p.data, force: true }; flushSave(); }
         else if (activeRef.current === p.id) {
           baseRef.current[p.id] = r.body.updatedAt;
@@ -67,7 +72,7 @@ export function useBranchData(activeBranchId) {
       timerRef.current = setTimeout(flushSave, 5000);
       if (!errorAlertedRef.current) {
         errorAlertedRef.current = true;
-        alert("저장 실패: " + (r.body?.error || "HTTP " + r.status) + "\n연결을 확인해 주세요. 자동으로 다시 시도합니다.");
+        notify.error("저장 실패: " + (r.body?.error || "HTTP " + r.status) + "\n연결을 확인해 주세요. 자동으로 다시 시도합니다.");
       }
     });
     inflightRef.current = run.catch(() => {});

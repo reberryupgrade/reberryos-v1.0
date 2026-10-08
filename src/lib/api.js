@@ -1,3 +1,5 @@
+import { notify } from "@/src/components/feedback";
+
 
 
 // 서버 API 호출 공통 래퍼. 세션 쿠키가 자동으로 실리고, 권한 검사는 서버가 한다.
@@ -25,7 +27,7 @@ export async function loadSys(){const r=await api("/api/storage/sys");return r.o
 
 export async function saveSys(d){
   const r=await api("/api/storage/sys",{method:"PUT",body:{value:d}});
-  if(!r.ok)alert("설정 저장 실패: "+(r.body?.error||"HTTP "+r.status));
+  if(!r.ok)notify("설정 저장 실패: "+(r.body?.error||"HTTP "+r.status));
   return r;
 }
 

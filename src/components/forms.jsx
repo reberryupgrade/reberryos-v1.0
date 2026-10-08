@@ -132,6 +132,14 @@ export function TodoForm({initial,onSave}){
 
 export function AddUserForm({branches,onSave}){
   const[f,setF]=useState({name:"",username:"",password:"",role:"manager",branchId:""});
+  const[err,setErr]=useState("");
+  const submit=()=>{
+    if(!f.name.trim()||!f.username.trim())return setErr("이름과 아이디를 입력하세요.");
+    if(/\s/.test(f.username))return setErr("아이디에는 공백을 쓸 수 없습니다.");
+    if(f.password.length<6)return setErr("비밀번호는 6자 이상이어야 합니다.");
+    if(f.role!=="admin"&&!f.branchId)return setErr("소속 지점을 선택하세요.");
+    setErr("");onSave({...f,username:f.username.trim(),name:f.name.trim()});
+  };
   return (
     <div>
       <FF label="이름"><Inp value={f.name} onChange={v=>setF({...f,name:v})} placeholder="홍길동"/></FF>
@@ -152,7 +160,8 @@ export function AddUserForm({branches,onSave}){
           </select>
         </FF>
       )}
-      <Btn onClick={()=>onSave(f)} style={{width:"100%",marginTop:4}}>추가</Btn>
+      {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:12}}>{err}</div>}
+      <Btn onClick={submit} style={{width:"100%",marginTop:4}}>추가</Btn>
     </div>
   );
 }

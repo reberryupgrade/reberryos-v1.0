@@ -1,4 +1,5 @@
 "use client";
+import { notify, confirmDialog } from "@/src/components/feedback";
 import { useState } from "react";
 import { saveSys, saveBranch, deleteBranch } from "@/src/lib/api";
 import { DEFAULT_BRANCH_DATA } from "@/src/lib/constants";
@@ -23,15 +24,15 @@ export function AdminDashboard({system,setSystem,onSelectBranch,user,onLogout}){
     if(!(await commitSys({...system,branches:[...system.branches,nb]})))return;
     // 새 지점의 기본 데이터 저장
     const r=await saveBranch(nb.id,{...DEFAULT_BRANCH_DATA,portalConfig:{...DEFAULT_BRANCH_DATA.portalConfig,clinicName:nb.clinicName}});
-    if(!r.ok)alert("지점 기본 데이터 저장 실패: "+(r.body?.error||"HTTP "+r.status));
+    if(!r.ok)notify("지점 기본 데이터 저장 실패: "+(r.body?.error||"HTTP "+r.status));
     setModal(null);
   };
   const delBranch=async(id)=>{
-    if(!confirm("이 지점과 모든 데이터를 삭제합니다. 계속할까요?"))return;
+    if(!(await confirmDialog("이 지점과 모든 데이터를 삭제합니다. 계속할까요?",{okLabel:"삭제",danger:true})))return;
     const newSys={...system,branches:system.branches.filter(b=>b.id!==id),users:system.users.map(u=>u.branchId===id?{...u,branchId:null}:u)};
     if(!(await commitSys(newSys)))return;
     const r=await deleteBranch(id);
-    if(!r.ok)alert("지점 데이터 삭제 실패: "+(r.body?.error||"HTTP "+r.status));
+    if(!r.ok)notify("지점 데이터 삭제 실패: "+(r.body?.error||"HTTP "+r.status));
   };
   const addUser=async(f)=>{
     const nu={id:Date.now(),username:f.username.trim(),password:f.password,role:f.role,name:f.name,branchId:f.role!=="admin"?(+f.branchId||null):null};
@@ -40,9 +41,9 @@ export function AdminDashboard({system,setSystem,onSelectBranch,user,onLogout}){
   const changePassword=async(id,password)=>{
     if(await commitSys({...system,users:system.users.map(u=>u.id===id?{...u,password}:u)}))setModal(null);
   };
-  const delUser=(id)=>{
-    if(id===user.id)return alert("자신의 계정은 삭제할 수 없습니다.");
-    if(!confirm("이 사용자를 삭제할까요?"))return;
+  const delUser=async(id)=>{
+    if(id===user.id)return notify("자신의 계정은 삭제할 수 없습니다.");
+    if(!(await confirmDialog("이 사용자를 삭제할까요?",{okLabel:"삭제",danger:true})))return;
     commitSys({...system,users:system.users.filter(u=>u.id!==id)});
   };
 

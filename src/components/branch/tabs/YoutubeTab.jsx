@@ -1,4 +1,5 @@
 "use client";
+import { confirmDialog } from "@/src/components/feedback";
 import { CHANNEL_COLORS } from "@/src/lib/constants";
 import { fmt, today } from "@/src/lib/format";
 import { Th, Td, Btn, Inp, FF, LinkCell, DelBtn, Modal, CommentsPanel, SectionWithCost } from "@/src/components/ui";
@@ -18,7 +19,7 @@ export function YoutubeTab({data,del,modal,setModal,setYtChTab,upd,ytAddByUrl,yt
                         </div>
                         <div style={{display:"flex",gap:4}}>
                           <button onClick={e=>{e.stopPropagation();ytRefreshChannel(ch);}} disabled={ytLoading==="ch_"+ch.id} style={{background:"#334155",border:"none",color:"#06b6d4",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>{ytLoading==="ch_"+ch.id?"⏳":"↻"}</button>
-                          <button onClick={e=>{e.stopPropagation();if(confirm(ch.name+" 채널을 삭제하시겠습니까?"))upd("ytChannels",(data.ytChannels||[]).filter(x=>x.id!==ch.id));}} style={{background:"#334155",border:"none",color:"#ef4444",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✕</button>
+                          <button onClick={async e=>{e.stopPropagation();if(await confirmDialog(ch.name+" 채널을 삭제하시겠습니까?",{okLabel:"삭제",danger:true}))upd("ytChannels",(data.ytChannels||[]).filter(x=>x.id!==ch.id));}} style={{background:"#334155",border:"none",color:"#ef4444",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✕</button>
                         </div>
                       </div>
                       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>

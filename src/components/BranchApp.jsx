@@ -1,27 +1,31 @@
 "use client";
+import { notify } from "@/src/components/feedback";
 import { useState, useRef, useEffect } from "react";
-import * as XLSX from "xlsx";
 import { extractYtId, fetchYtVideo, fetchYtComments, resolveYtChannelId, fetchYtChannelVideos } from "@/src/lib/youtube";
 import { TAB_TYPES, COMM_PLATFORMS, TABS, CHANNEL_COLORS } from "@/src/lib/constants";
 import { fmt, fmtW, today } from "@/src/lib/format";
-import { exportExcel } from "@/src/lib/excel";
+import { exportExcel, loadXlsx } from "@/src/lib/excel";
 import { Btn, SaveBadge } from "@/src/components/ui";
-import { OverviewTab } from "@/src/components/branch/tabs/OverviewTab";
-import { PerformanceTab } from "@/src/components/branch/tabs/PerformanceTab";
-import { PortalTab } from "@/src/components/branch/tabs/PortalTab";
-import { BudgetTab } from "@/src/components/branch/tabs/BudgetTab";
-import { KeywordsTab } from "@/src/components/branch/tabs/KeywordsTab";
-import { MapsTab } from "@/src/components/branch/tabs/MapsTab";
-import { ExperienceTab } from "@/src/components/branch/tabs/ExperienceTab";
-import { CafesTab } from "@/src/components/branch/tabs/CafesTab";
-import { YoutubeTab } from "@/src/components/branch/tabs/YoutubeTab";
-import { ShortformTab } from "@/src/components/branch/tabs/ShortformTab";
-import { AutocompleteTab } from "@/src/components/branch/tabs/AutocompleteTab";
-import { SeoTab } from "@/src/components/branch/tabs/SeoTab";
-import { CalendarTab } from "@/src/components/branch/tabs/CalendarTab";
-import { CommunityTab } from "@/src/components/branch/tabs/CommunityTab";
-import { InhouseTab } from "@/src/components/branch/tabs/InhouseTab";
-import { OfflineTab } from "@/src/components/branch/tabs/OfflineTab";
+import dynamic from "next/dynamic";
+// 탭은 처음 열 때 내려받는다 (recharts 등 무거운 의존성은 해당 탭에서만 로드)
+const tabLoading=()=><div style={{color:"#64748b",padding:24,fontSize:13}}>불러오는 중…</div>;
+const lazyTab=(loader)=>dynamic(loader,{loading:tabLoading,ssr:false});
+const OverviewTab=lazyTab(()=>import("@/src/components/branch/tabs/OverviewTab").then(m=>m.OverviewTab));
+const PerformanceTab=lazyTab(()=>import("@/src/components/branch/tabs/PerformanceTab").then(m=>m.PerformanceTab));
+const PortalTab=lazyTab(()=>import("@/src/components/branch/tabs/PortalTab").then(m=>m.PortalTab));
+const BudgetTab=lazyTab(()=>import("@/src/components/branch/tabs/BudgetTab").then(m=>m.BudgetTab));
+const KeywordsTab=lazyTab(()=>import("@/src/components/branch/tabs/KeywordsTab").then(m=>m.KeywordsTab));
+const MapsTab=lazyTab(()=>import("@/src/components/branch/tabs/MapsTab").then(m=>m.MapsTab));
+const ExperienceTab=lazyTab(()=>import("@/src/components/branch/tabs/ExperienceTab").then(m=>m.ExperienceTab));
+const CafesTab=lazyTab(()=>import("@/src/components/branch/tabs/CafesTab").then(m=>m.CafesTab));
+const YoutubeTab=lazyTab(()=>import("@/src/components/branch/tabs/YoutubeTab").then(m=>m.YoutubeTab));
+const ShortformTab=lazyTab(()=>import("@/src/components/branch/tabs/ShortformTab").then(m=>m.ShortformTab));
+const AutocompleteTab=lazyTab(()=>import("@/src/components/branch/tabs/AutocompleteTab").then(m=>m.AutocompleteTab));
+const SeoTab=lazyTab(()=>import("@/src/components/branch/tabs/SeoTab").then(m=>m.SeoTab));
+const CalendarTab=lazyTab(()=>import("@/src/components/branch/tabs/CalendarTab").then(m=>m.CalendarTab));
+const CommunityTab=lazyTab(()=>import("@/src/components/branch/tabs/CommunityTab").then(m=>m.CommunityTab));
+const InhouseTab=lazyTab(()=>import("@/src/components/branch/tabs/InhouseTab").then(m=>m.InhouseTab));
+const OfflineTab=lazyTab(()=>import("@/src/components/branch/tabs/OfflineTab").then(m=>m.OfflineTab));
 
 export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout,saveStatus}){
   const[tab,setTab]=useState("overview");
@@ -90,19 +94,19 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
   };
   const checkNaverRank=async(kwItem)=>{
     const targets=dataRef.current.rankTargets||{};
-    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요 (블로그명, 업체명 등)");return;}
+    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){notify("먼저 '내 콘텐츠 식별자'를 설정해주세요 (블로그명, 업체명 등)");return;}
     setRankLoading(kwItem.id);
     try{
       const d=await fetchRankData(kwItem.keyword,targets);
-      if(d.error){alert("오류: "+d.error);setRankLoading(null);return;}
+      if(d.error){notify("오류: "+d.error);setRankLoading(null);return;}
       const updates=applyRankResult(kwItem.id,d);
       upd("keywords",dataRef.current.keywords.map(k=>k.id===kwItem.id?{...k,...updates}:k));
-    }catch(e){alert("네트워크 오류: "+e.message);}
+    }catch(e){notify("네트워크 오류: "+e.message);}
     setRankLoading(null);
   };
   const checkAllRanks=async()=>{
     const targets=dataRef.current.rankTargets||{};
-    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){alert("먼저 '내 콘텐츠 식별자'를 설정해주세요");return;}
+    if(!targets.blogName&&!targets.placeName&&!targets.cafeName){notify("먼저 '내 콘텐츠 식별자'를 설정해주세요");return;}
     const kws=[...dataRef.current.keywords];
     if(!kws.length)return;
     setRankLoading("all");
@@ -128,7 +132,7 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
   };
   const checkMapRank=async(mapItem)=>{
     const targets=dataRef.current.rankTargets||{};
-    if(!targets.placeName){alert("먼저 '내 콘텐츠 식별자'에서 업체명을 설정해주세요");return;}
+    if(!targets.placeName){notify("먼저 '내 콘텐츠 식별자'에서 업체명을 설정해주세요");return;}
     setRankLoading("map_"+mapItem.id);
     try{
       const d=await fetchRankData(mapItem.keyword,targets);
@@ -151,7 +155,7 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
   };
   const checkAllMapRanks=async()=>{
     const targets=dataRef.current.rankTargets||{};
-    if(!targets.placeName){alert("먼저 업체명을 설정해주세요");return;}
+    if(!targets.placeName){notify("먼저 업체명을 설정해주세요");return;}
     const maps=[...dataRef.current.maps];
     if(!maps.length)return;
     setRankLoading("allMaps");
@@ -187,14 +191,14 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
   };
   const fetchReviews=async(keyword,platform="naver")=>{
     const targets=dataRef.current.rankTargets||{};
-    if(!targets.placeName){alert("업체명을 먼저 설정해주세요");return;}
+    if(!targets.placeName){notify("업체명을 먼저 설정해주세요");return;}
     setRankLoading("reviews_"+platform);
     try{
       const res=await fetch("/api/naver-rank",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keyword,targets,action:"reviews",platform})});
       const d=await res.json();
       if(d.results?.reviews){setModal({type:"reviews",data:d.results.reviews,keyword,platform});}
-      else{alert((platform==="naver"?"플레이스":platform==="google"?"구글맵":"카카오맵")+" 리뷰를 가져올 수 없습니다.");}
-    }catch(e){alert("오류: "+e.message);}
+      else{notify((platform==="naver"?"플레이스":platform==="google"?"구글맵":"카카오맵")+" 리뷰를 가져올 수 없습니다.");}
+    }catch(e){notify("오류: "+e.message);}
     setRankLoading(null);
   };
   const runApiDiag=async()=>{
@@ -203,47 +207,47 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
       const res=await fetch("/api/naver-rank/test");
       const d=await res.json();
       setModal({type:"apiDiag",data:d});
-    }catch(e){alert("진단 실패: "+e.message);}
+    }catch(e){notify("진단 실패: "+e.message);}
     setRankLoading(null);
   };
   const[ytChTab,setYtChTab]=useState("all");
   const ytRefresh=async(item,key="youtube")=>{
-    const vid=extractYtId(item.url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return;}
+    const vid=extractYtId(item.url);if(!vid){notify("유효한 YouTube URL이 아닙니다.");return;}
     setYtLoading(item.id);
     try{
       const[vd,cm]=await Promise.all([fetchYtVideo(vid),fetchYtComments(vid)]);
-      if(!vd){alert("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
+      if(!vd){notify("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
       const updated={...item,title:vd.title||item.title,views:vd.views,likes:vd.likes,commentCount:vd.commentCount,comments:cm,channelTitle:vd.channelTitle,channelId:vd.channelId,thumbnail:vd.thumbnail,lastUpdated:today()};
       upd(key,data[key].map(r=>r.id===item.id?{...r,...updated}:r));
-    }catch(e){alert("API 오류: "+e.message);}
+    }catch(e){notify("API 오류: "+e.message);}
     setYtLoading(null);
   };
   const ytAddByUrl=async(url,key="youtube",platform="")=>{
-    const vid=extractYtId(url);if(!vid){alert("유효한 YouTube URL이 아닙니다.");return false;}
+    const vid=extractYtId(url);if(!vid){notify("유효한 YouTube URL이 아닙니다.");return false;}
     setYtLoading("adding");
     try{
       const[vd,cm]=await Promise.all([fetchYtVideo(vid),fetchYtComments(vid)]);
-      if(!vd){alert("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return false;}
+      if(!vd){notify("영상 정보를 가져올 수 없습니다.");setYtLoading(null);return false;}
       const entry={id:Date.now(),url,title:vd.title,views:vd.views,likes:vd.likes,commentCount:vd.commentCount,comments:cm,channelTitle:vd.channelTitle,channelId:vd.channelId,thumbnail:vd.thumbnail,lastUpdated:today()};
       if(platform)entry.platform=platform;
       upd(key,[...data[key],entry]);
-    }catch(e){alert("API 오류: "+e.message);}
+    }catch(e){notify("API 오류: "+e.message);}
     setYtLoading(null);return true;
   };
   const ytAddChannel=async(input)=>{
     setYtLoading("addCh");
     try{
       const cid=await resolveYtChannelId(input);
-      if(!cid){alert("채널을 찾을 수 없습니다.");setYtLoading(null);return;}
-      if((data.ytChannels||[]).some(c=>c.id===cid)){alert("이미 등록된 채널입니다.");setYtLoading(null);return;}
+      if(!cid){notify("채널을 찾을 수 없습니다.");setYtLoading(null);return;}
+      if((data.ytChannels||[]).some(c=>c.id===cid)){notify("이미 등록된 채널입니다.");setYtLoading(null);return;}
       const result=await fetchYtChannelVideos(cid);
-      if(!result){alert("채널 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
+      if(!result){notify("채널 정보를 가져올 수 없습니다.");setYtLoading(null);return;}
       const ch={...result.channel,id:cid,addedAt:today()};
       upd("ytChannels",[...(data.ytChannels||[]),ch]);
       const newVids=result.videos.filter(v=>!data.youtube.some(y=>y.url===v.url)).map(v=>({...v,id:Date.now()+Math.random(),channelId:cid,channelTitle:result.channel.name,lastUpdated:today(),comments:[]}));
       if(newVids.length)upd("youtube",[...data.youtube,...newVids]);
-      alert(`${result.channel.name} 등록 완료! ${newVids.length}개 영상 추가됨`);
-    }catch(e){alert("오류: "+e.message);}
+      notify(`${result.channel.name} 등록 완료! ${newVids.length}개 영상 추가됨`);
+    }catch(e){notify("오류: "+e.message);}
     setYtLoading(null);
   };
   const ytRefreshChannel=async(ch)=>{
@@ -264,16 +268,16 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
   const handleExcel=e=>{
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=ev=>{const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+    reader.onload=async ev=>{const XLSX=await loadXlsx();const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
       const nk=rows.slice(1).filter(r=>r[0]).map((r,i)=>({id:Date.now()+i,keyword:String(r[0]).trim(),tabOrder:[...TAB_TYPES],myBlogRank:r[1]||"-",myPlaceRank:r[2]||"-",status:"warn"}));
-      upd("keywords",[...data.keywords,...nk]);alert(`${nk.length}개 키워드 추가 완료`);};
+      upd("keywords",[...data.keywords,...nk]);notify(`${nk.length}개 키워드 추가 완료`);};
     reader.readAsBinaryString(file);e.target.value="";
   };
   const handleGoogleSheet=async()=>{
     const url=prompt("구글시트 링크를 붙여넣으세요:\n\n※ 시트가 '링크가 있는 모든 사용자에게 공개'로 설정되어야 합니다.\n※ A열: 키워드 (필수), B열: 블로그순위, C열: 플레이스순위, D열: 월검색량\n※ 1행은 헤더로 건너뜁니다.");
     if(!url)return;
     const idMatch=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if(!idMatch){alert("유효한 구글시트 URL이 아닙니다.\n예: https://docs.google.com/spreadsheets/d/1abc.../edit");return;}
+    if(!idMatch){notify("유효한 구글시트 URL이 아닙니다.\n예: https://docs.google.com/spreadsheets/d/1abc.../edit");return;}
     const sheetId=idMatch[1];
     const gidMatch=url.match(/gid=(\d+)/);
     const gid=gidMatch?gidMatch[1]:"0";
@@ -292,25 +296,25 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
         id:Date.now()+i,keyword:r[0].replace(/^"|"$/g,"").trim(),tabOrder:[...TAB_TYPES],
         myBlogRank:r[1]||"-",myPlaceRank:r[2]||"-",monthlySearch:r[3]?parseInt(r[3]):null,status:"warn"
       }));
-      if(nk.length===0){alert("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
+      if(nk.length===0){notify("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
       upd("keywords",[...data.keywords,...nk]);
-      alert(`✅ ${nk.length}개 키워드 추가 완료!`);
-    }catch(e){alert("구글시트 불러오기 실패: "+e.message);}
+      notify(`✅ ${nk.length}개 키워드 추가 완료!`);
+    }catch(e){notify("구글시트 불러오기 실패: "+e.message);}
     setRankLoading(null);
   };
   const handleMapExcel=e=>{
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=ev=>{const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+    reader.onload=async ev=>{const XLSX=await loadXlsx();const wb=XLSX.read(ev.target.result,{type:"binary"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});
       const nm=rows.slice(1).filter(r=>r[0]).map((r,i)=>({id:Date.now()+i,keyword:String(r[0]).trim(),naverPlace:"-",google:"-",kakao:"-",status:"warn"}));
-      upd("maps",[...data.maps,...nm]);alert(`${nm.length}개 지도 키워드 추가 완료`);};
+      upd("maps",[...data.maps,...nm]);notify(`${nm.length}개 지도 키워드 추가 완료`);};
     reader.readAsBinaryString(file);e.target.value="";
   };
   const handleMapGoogleSheet=async()=>{
     const url=prompt("구글시트 링크를 붙여넣으세요:\n\n※ 시트가 '링크가 있는 모든 사용자에게 공개'로 설정되어야 합니다.\n※ A열: 키워드 (필수)\n※ 1행은 헤더로 건너뜁니다.");
     if(!url)return;
     const idMatch=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if(!idMatch){alert("유효한 구글시트 URL이 아닙니다.");return;}
+    if(!idMatch){notify("유효한 구글시트 URL이 아닙니다.");return;}
     const sheetId=idMatch[1];
     const gidMatch=url.match(/gid=(\d+)/);
     const gid=gidMatch?gidMatch[1]:"0";
@@ -327,14 +331,14 @@ export function BranchApp({branchId,branchName,data,setData,user,onBack,onLogout
       const nm=lines.slice(1).filter(r=>r[0]&&r[0].length>0).map((r,i)=>({
         id:Date.now()+i,keyword:r[0].replace(/^"|"$/g,"").trim(),naverPlace:"-",google:"-",kakao:"-",status:"warn"
       }));
-      if(nm.length===0){alert("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
+      if(nm.length===0){notify("키워드를 찾을 수 없습니다. A열에 키워드를 입력해주세요.");setRankLoading(null);return;}
       upd("maps",[...data.maps,...nm]);
-      alert(`✅ ${nm.length}개 지도 키워드 추가 완료!`);
-    }catch(e){alert("구글시트 불러오기 실패: "+e.message);}
+      notify(`✅ ${nm.length}개 지도 키워드 추가 완료!`);
+    }catch(e){notify("구글시트 불러오기 실패: "+e.message);}
     setRankLoading(null);
   };
   const callAI=async()=>{
-    if(!aiRegion)return alert("지역을 입력해주세요.");
+    if(!aiRegion)return notify("지역을 입력해주세요.");
     setAiLoading(true);setAiResult([]);
     try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:`당신은 한국 로컬 마케팅 전문가입니다. ${aiRegion} 지역의 ${aiSpec||"미용 피부과/성형외과"} 병원에 방문할 잠재 고객이 네이버에서 검색할만한 키워드를 중요도 순으로 20개 제안해주세요. 월간 예상 검색량과 지난 12개월 월별 추이를 포함하세요. JSON 배열로만:\n[{"keyword":"강남 피부과","priority":1,"monthlySearch":12000,"trend":[{"month":"1월","count":10000},{"month":"2월","count":11000},{"month":"3월","count":13000},{"month":"4월","count":14000},{"month":"5월","count":13500},{"month":"6월","count":12000},{"month":"7월","count":11000},{"month":"8월","count":10500},{"month":"9월","count":11500},{"month":"10월","count":12500},{"month":"11월","count":13000},{"month":"12월","count":12000}]}]`}]})});
       const d=await res.json();setAiResult(JSON.parse((d.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim()));

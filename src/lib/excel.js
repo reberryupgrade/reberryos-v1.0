@@ -1,8 +1,14 @@
-import * as XLSX from "xlsx";
 import { SL } from "@/src/lib/constants";
 import { today } from "@/src/lib/format";
 
-export function exportExcel(data, branchName){
+// xlsx 는 약 400KB 라 내보내기/가져오기 때만 내려받는다
+export async function loadXlsx(){
+  const m=await import("xlsx");
+  return m.default||m;
+}
+
+export async function exportExcel(data, branchName){
+  const XLSX=await loadXlsx();
   const wb=XLSX.utils.book_new();
   // 성과추이
   if(data.performanceLogs?.length){

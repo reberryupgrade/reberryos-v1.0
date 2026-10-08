@@ -1,17 +1,32 @@
 "use client";
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { api, loadSys } from "@/src/lib/api";
 import { useBranchData } from "@/src/hooks/useBranchData";
 import { Btn } from "@/src/components/ui";
+import { Toaster, ConfirmHost } from "@/src/components/feedback";
 import { LoginScreen } from "@/src/components/LoginScreen";
-import { AdminDashboard } from "@/src/components/AdminDashboard";
-import { ClientPortal } from "@/src/components/ClientPortal";
-import { BranchApp } from "@/src/components/BranchApp";
 
 const centered = { minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" };
 const Loading = ({ text = "로딩 중...", color = "#6366f1" }) => <div style={{ ...centered, color, fontSize: 18 }}>{text}</div>;
 
+// 로그인 화면에서는 큰 화면 코드를 내려받지 않도록, 로그인 뒤에 쓰는 화면은 지연 로드
+const lazyScreen = (loader) => dynamic(loader, { loading: () => <Loading />, ssr: false });
+const AdminDashboard = lazyScreen(() => import("@/src/components/AdminDashboard").then((m) => m.AdminDashboard));
+const ClientPortal = lazyScreen(() => import("@/src/components/ClientPortal").then((m) => m.ClientPortal));
+const BranchApp = lazyScreen(() => import("@/src/components/BranchApp").then((m) => m.BranchApp));
+
 export default function App() {
+  return (
+    <>
+      <Toaster />
+      <ConfirmHost />
+      <AppRouter />
+    </>
+  );
+}
+
+function AppRouter() {
   const [user, setUser] = useState(null);
   const [system, setSystem] = useState(null);
   const [activeBranchId, setActiveBranchId] = useState(null);
