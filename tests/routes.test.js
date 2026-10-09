@@ -77,6 +77,17 @@ describe("POST /api/auth/login", () => {
     expect(b.res.status).toBe(401);
     expect(a.body.error).toBe(b.body.error);
   });
+  it("reports a configuration error instead of a generic failure when AUTH_SECRET is unusable", async () => {
+    const saved = process.env.AUTH_SECRET;
+    process.env.AUTH_SECRET = "short";
+    try {
+      const { res, body } = await loginAs("admin", "admin");
+      expect(res.status).toBe(500);
+      expect(body.error).toContain("AUTH_SECRET");
+    } finally {
+      process.env.AUTH_SECRET = saved;
+    }
+  });
   it("blocks an IP after repeated failures", async () => {
     const ip = { "x-forwarded-for": "203.0.113.9" };
     for (let i = 0; i < 5; i++) {

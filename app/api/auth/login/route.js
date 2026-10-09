@@ -44,6 +44,13 @@ export async function POST(req) {
     await writeStorage(SYS_KEY, { ...sys, users });
   }
 
-  const token = await signSession(user);
+  let token;
+  try {
+    token = await signSession(user);
+  } catch (e) {
+    // AUTH_SECRET 이 없거나 32자 미만이면 여기서 실패한다. 배포 환경변수 문제임을 화면에 알려준다.
+    console.error("[login] signSession failed:", e.message);
+    return Response.json({ error: "서버 설정 오류: AUTH_SECRET 환경변수가 없거나 너무 짧습니다. 배포 설정을 확인하세요." }, { status: 500 });
+  }
   return Response.json({ user: publicUser(user) }, { headers: { "Set-Cookie": sessionCookie(token) } });
 }
