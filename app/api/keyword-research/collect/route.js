@@ -2,8 +2,10 @@
 // REBERRYOS 키워드 발굴 - 블로그 제목 수집 API
 // 경로: app/api/keyword-research/collect/route.js
 // 
+// 인증: 관리자로 로그인한 브라우저 세션, 또는 헤더 `Authorization: Bearer <CRON_SECRET>`
+//
 // 호출 방법:
-//   1) 브라우저에서 GET (가장 쉬움)
+//   1) 브라우저에서 GET (관리자 로그인 상태)
 //      https://your-domain.vercel.app/api/keyword-research/collect?all=true
 //      https://your-domain.vercel.app/api/keyword-research/collect?priority=3
 //      https://your-domain.vercel.app/api/keyword-research/collect?axis=B
@@ -23,12 +25,19 @@
 //   - NEXT_PUBLIC_SUPABASE_ANON_KEY
 // ============================================================
 
-import { createClient } from '@supabase/supabase-js';
+import { getServerSupabase } from '@/lib/server/supabase';
+import { requireSession } from '@/lib/server/session';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// 모듈 로드 시점이 아니라 요청 시점에 클라이언트를 만든다 (빌드 중 env 부재 대비)
+const db = () => getServerSupabase();
+
+// 인증: 관리자 세션 쿠키, 또는 cron/curl 용 `Authorization: Bearer <CRON_SECRET>`
+async function authorize(req) {
+  const bearer = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (process.env.CRON_SECRET && bearer && bearer === process.env.CRON_SECRET) return null;
+  const auth = await requireSession(req, { roles: ['admin'] });
+  return auth.ok ? null : auth.response;
+}
 
 const NAVER_CLIENT_ID = process.env.NAVER_SEARCH_CLIENT_ID;
 const NAVER_CLIENT_SECRET = process.env.NAVER_SEARCH_CLIENT_SECRET;
@@ -119,7 +128,7 @@ async function collectForSeed(seed) {
   });
 
   // upsert: 같은 (seed_id, url) 중복 시 무시
-  const { data: inserted, error } = await supabase
+  const { data: inserted, error } = await db()
     .from('competitor_blog_titles')
     .upsert(rows, { onConflict: 'seed_id,url', ignoreDuplicates: true })
     .select();
@@ -129,7 +138,7 @@ async function collectForSeed(seed) {
   }
 
   // 시드의 last_collected_at 업데이트
-  await supabase
+  await db()
     .from('keyword_research_seeds')
     .update({ last_collected_at: new Date().toISOString() })
     .eq('id', seed.id);
@@ -175,7 +184,7 @@ async function runWithConcurrency(items, limit, fn) {
 // 6. 시드 조회 (필터 옵션 적용)
 // ------------------------------------------------------------
 async function loadSeeds({ seed_ids, axis, priority_min, all }) {
-  let query = supabase
+  let query = db()
     .from('keyword_research_seeds')
     .select('id, branch_id, seed, axis, priority')
     .eq('is_active', true);
@@ -246,6 +255,8 @@ async function handle(options) {
 // 8. POST - body로 옵션 받기
 // ------------------------------------------------------------
 export async function POST(req) {
+  const denied = await authorize(req);
+  if (denied) return denied;
   let body = {};
   try {
     body = await req.json();
@@ -268,6 +279,8 @@ export async function POST(req) {
 //   /api/keyword-research/collect?priority=3
 // ------------------------------------------------------------
 export async function GET(req) {
+  const denied = await authorize(req);
+  if (denied) return denied;
   const url = new URL(req.url);
   const all = url.searchParams.get('all') === 'true';
   const axis = url.searchParams.get('axis');

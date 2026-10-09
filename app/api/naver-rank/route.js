@@ -1,3 +1,5 @@
+import { requireSession } from "@/lib/server/session";
+
 // 한국 프록시 경유 fetch (PROXY_URL 설정 시 자동 활성화)
 async function proxyFetch(url, opts = {}) {
   const proxyUrl = process.env.PROXY_URL;
@@ -39,6 +41,9 @@ async function proxyFetch(url, opts = {}) {
 }
 
 export async function POST(req) {
+  // 로그인한 사용자만 호출 가능 (외부에서 순위 조회를 무제한으로 돌리는 것 방지)
+  const auth = await requireSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const { keyword, targets, action, platform } = await req.json();
     if (!keyword) return Response.json({ error: "keyword required" }, { status: 400 });
@@ -678,7 +683,7 @@ export async function POST(req) {
           }
         }
       }
-    } catch (e) { /* 검색광고 API 실패 시 무시 */ }
+    } catch { /* 검색광고 API 실패 시 무시 */ }
 
     return Response.json({ keyword, timestamp: new Date().toISOString(), results });
   } catch (err) {
